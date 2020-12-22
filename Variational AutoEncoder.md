@@ -1,4 +1,4 @@
-# Variational AutoEncoder
+# Variational AutoEncoder.tex.md
 
 ###### tags: `VAE`
 
