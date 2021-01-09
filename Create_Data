@@ -1,0 +1,70 @@
+#!/bin/bash
+module load cuda/10.0
+module load cudnn/7.3-cuda-10.0
+
+
+cd /scratch/
+
+if [ ! -d "harsh_cnn"]; then
+    rm -rf harsh_cnn
+fi
+
+mkdir -p harsh_cnn 
+echo "Directory Created"
+
+cd harsh_cnn/
+echo "Entering harsh_cnn directory..." 
+
+rsync -aP ada:/share1/harsh.shukla/share_data/Flickr2K.tar /scratch/harsh_cnn/
+echo "Flick2r.tar copied"
+
+#rsync -aP ada:/share1/harsh.shukla/share_data/realsr_final.tar.gz /scratch/harsh_cnn/
+#echo "realsr_final.tar.gz"
+
+tar -xvf Flickr2K.tar
+echo "Flickr Dataset Extracted" 
+rm -rf Flickr2K.tar 
+
+rsync -aP ada:/home/harsh.shukla/SRCNN/data/train/* /scratch/harsh_cnn/train/
+rsync -aP ada:/home/harsh.shukla/SRCNN/data/test/*  /scratch/harsh_cnn/test
+rsync -aP /scratch/harsh_cnn/Flickr2K/Flickr2K_HR/* /scratch/harsh_cnn/train
+
+echo "Train and Test Directories Prepared"
+echo "-----------------------------------"
+echo "Starting Pre Processing Scripts..."
+echo "Creating Processed Test and Train directories...."
+mkdir SR_data
+cd SR_data
+mkdir train 
+cd train 
+mkdir input
+mkdir target 
+cd ..
+mkdir test 
+cd test 
+mkdir input 
+mkdir target
+cd ..
+cd ..
+
+echo "Pre Processing script started..."
+
+python /home/harsh.shukla/SRCNN/Codes/Super_Resolution_Net/Pre_Processing_SN.py
+python /home/harsh.shuka/SRCNN/Codes/Super_Resolution_Net/SRSN.py
+
+echo "================================"
+echo "-- D-O-N-E---"
+
+
+
+#tar -xvzf realsr_final.tar.gz 
+#echo "Real Super Resolution Dataset Extracted"
+#rm -rf realsr_final.tar.gz 
+
+
+
+
+
+
+
+
