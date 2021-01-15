@@ -28,8 +28,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics import Metric
 from pytorch_lightning import loggers as pl_loggers
 import argparse 
-
-
 import warnings
 warnings.filterwarnings("ignore")
 from IPython.display import clear_output
@@ -151,18 +149,14 @@ def process_and_train_load_data():
 
 ### Creating function for Gradient Visualisation 
 def plot_grad_flow(result_directory,named_parameters): 
-    '''Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
     
-    Usage: Plug this function in Trainer class after loss.backwards() as 
-    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
     ave_grads = []
     layers = []
     for n, p in named_parameters:
         if(p.requires_grad) and ("bias" not in n):
             layers.append(n)
             ave_grads.append(p.grad.abs().mean())
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(12,12))
     plt.plot(ave_grads, alpha=0.3, color="b")
     plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
     plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
@@ -173,29 +167,57 @@ def plot_grad_flow(result_directory,named_parameters):
     plt.grid(True)
     plt.savefig(os.path.join(result_directory,"gradient_flow.png"))
     
+### Get all the children layers 
+def get_children(model: torch.nn.Module):
+    # get children form model!
+    children = list(model.children())
+    flatt_children = []
+    if children == []:
+        # if model has no children; model is last child! :O
+        return model
+    else:
+       # look for children from children... to the last child!
+       for child in children:
+            try:
+                flatt_children.extend(get_children(child))
+            except TypeError:
+                flatt_children.append(get_children(child))
+    return flatt_children
+    
 
 ### Layer Activation in CNNs 
-def hook_fn(visualisation,m, i, o):
-    visualisation[m] = o 
+
     
-def get_all_layers(net):
-    for name, layer in net._modules.items():
-        #If it is a sequential, don't register a hook on it
-        # but recursively register hook on all it's module children
-        if isinstance(layer, nn.Sequential):
-            get_all_layers(layer)
-        else:
-          # it's a non sequential. Register a hook
-          layer.register_forward_hook(hook_fn)
+def visualise_layer_activation(model,local_batch,result_directory):
+    activation = {}
+    def get_activation(name):
+        def hook(model, input, output):
+            activation[name] = output.detach()
+        return hook
+    layer_name = 'conv1'
+    model.module.conv1.register_forward_hook(get_activation(layer_name))
+    output = model(local_batch)
+    act = activation[layer_name].squeeze()
+    print(act.shape)
+    #plot subplots for different images
+    for i in range(act[0].shape[0]):
+        output = im.fromarray(np.uint8(np.moveaxis(act[0][i].cpu().detach().numpy(), 0, -1))).convert('RGB')
+        output.save(os.path.join(result_directory,str(i)+'.png'))
+        #
 
+### Visualising Conv Filters
+def visualise_conv_filters(model,result_directory):
+    kernels = model.conv1.weight.detach()
+    print(kernels.shape)
+    # fig, axarr = plt.subplots(kernels.size(0))
+    # for i in range(kernels.shape[0]):
+    #     plt.savefig()
+    # for idx in range(kernels.size(0)):
+    #     axarr[idx].imsave(kernels[idx].squeeze(),result_directory + "1.png")
+    #
+    
 
-def visualise_layer_activations(net,input_): 
-    visualisation = {}
-    get_all_layers(net)
-    out = net(input_)
-    return visualisation  
-
-#########################################################
+#########################################################################################################################################################################################################
 
 
 def initialize_train_network(trainloader, testloader, debug): 
@@ -210,8 +232,10 @@ def initialize_train_network(trainloader, testloader, debug):
     model = model.to(device)
     os.mkdir("/home/harsh.shukla/SRCNN/sr_results")
     results = "/home/harsh.shukla/SRCNN/sr_results"
+    activation_results_dir = os.path.join(results,"Activations")
+    os.mkdir(activation_results_dir)
     loss1=0
-    for epoch in range(3):
+    for epoch in range(5):
         training_loss=[]
         test_loss=[]
         list_no=0
@@ -234,9 +258,10 @@ def initialize_train_network(trainloader, testloader, debug):
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss.append(criterion(output, local_labels).item())
-#                 visual_information = visualise_layer_activations(model,local_batch[0])
-                
+        
         if(debug == True):
+            visualise_layer_activation(model, local_batch, results)
+            visualise_conv_filters(model,results)
             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
             output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
@@ -267,21 +292,15 @@ def initialize_train_network(trainloader, testloader, debug):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m','--debug', help="Mode of Execution here")
-    parser.add_argument('-v','--visualise',help="Visualise Layer Activations")
     args = parser.parse_args()
     
     grad_flow_flag = False
-    visualise_gradients = False
-    
+
 
     if args.debug == "debug": 
         print("Running in Debug Mode.....")
         grad_flow_flag = True
-    
-    if args.visualise == "visualise": 
-        print("Running in Debug Mode.....")
-        visualise_gradients = True
-        
+
     trainloader, testloader = process_and_train_load_data()
     initialize_train_network(trainloader, testloader,grad_flow_flag)
 
