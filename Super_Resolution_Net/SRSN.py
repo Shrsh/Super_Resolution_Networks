@@ -27,9 +27,9 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.metrics import Metric
 from pytorch_lightning import loggers as pl_loggers
+import argparse 
 
 
-# Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
 from IPython.display import clear_output
@@ -44,12 +44,6 @@ torch.cuda.empty_cache()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
-if device == "cuda":
-    for i in range(len(device_ids)):
-        print(torch.cuda.get_device_name(i))
-        print('Memory Usage:')
-        print('Allocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
-        print('Cached:   ', round(torch.cuda.memory_reserved(0)/1024**3,1), 'GB')
 torch.backends.cudnn.benchmark = True
 
 trans = transforms.ToPILImage()
@@ -63,51 +57,12 @@ def load_images_from_folder(folder):
     for filename in os.listdir(folder):
         list_name.append(os.path.join(folder,filename))
     list_name.sort()
-#     print(list_name)
     for filename in list_name:
         img = cv2.imread(filename)
         if img is not None:
             images.append(img)
-#             print(c)
-#             c=c+1
-        # if c==8
     return images
 
-train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
-train_input=np.asarray(train)
-train_input=np.moveaxis(train_input,1,-1)
-train_input=np.moveaxis(train_input,1,-1)
-train_input = train_input.astype(np.float32)
-
-train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/y')
-train_target=np.asarray(train)
-train_target=np.moveaxis(train_target,1,-1)
-train_target=np.moveaxis(train_target,1,-1)
-train_target = train_target.astype(np.float32)
-
-
-test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/x')
-test_input=np.asarray(test)
-test_input=np.moveaxis(test_input,1,-1)
-test_input=np.moveaxis(test_input,1,-1)
-test_input = test_input.astype(np.float32)
-
-test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/y')
-test_target=np.asarray(test)
-test_target=np.moveaxis(test_target,1,-1)
-test_target=np.moveaxis(test_target,1,-1)
-test_target = test_target.astype(np.float32)
-
-data_train=[]
-data_test=[]
-for input, target in zip(train_input, train_target):
-    data_train.append([input, target])
-
-for input, target in zip(test_input, test_target):
-    data_test.append([input, target])
-
-trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64, shuffle=True)
-testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64, shuffle=True)
 
 class SRSN(nn.Module):
     def __init__(self, input_dim=3, dim=32, scale_factor=4):
@@ -133,6 +88,7 @@ class SRSN(nn.Module):
         # print(SR.shape)
         return SR
 
+
 class ResnetBlock(torch.nn.Module):
     def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
         super(ResnetBlock, self).__init__()
@@ -141,7 +97,6 @@ class ResnetBlock(torch.nn.Module):
 
         self.act1 = torch.nn.ReLU(inplace=True)
         self.act2 = torch.nn.ReLU(inplace=True)
-
 
     def forward(self, x):
 
@@ -152,98 +107,184 @@ class ResnetBlock(torch.nn.Module):
         out = self.conv2(out)
 
         out = out + x
-
         return out
     
-    
-    
-model=SRSN()
-model = nn.DataParallel(model, device_ids = device_ids)
-optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
-criterion = nn.MSELoss().to(device)
-best_loss=10000
-train=[]
-test=[]
-model = model.to(device)
-os.mkdir("/home/harsh.shukla/SRCNN/sr_results")
-results = "/home/harsh.shukla/SRCNN/sr_results"
-count = 0
-loss1=0
-for epoch in range(2500):
-    training_loss=0
-    test_loss=0
+
+def process_and_train_load_data():
+    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
+    train_input=np.asarray(train)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input = train_input.astype(np.float32)
+
+    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/y')
+    train_target=np.asarray(train)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target = train_target.astype(np.float32)
+
+    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
+
+    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
+    data_train=[]
+    data_test=[]
+    for input, target in zip(train_input, train_target):
+        data_train.append([input, target])
+    for input, target in zip(test_input, test_target):
+        data_test.append([input, target])
+
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64, shuffle=True)
+    return trainloader, testloader
 
 
-    for input_,target in trainloader:
-        if torch.cuda.is_available():
-            input_ = input_.to(device)
-            target=target.to(device)
-        # print("cuda")
-        output = model(input_)
-        loss=criterion(output, target)
-        loss.backward()
-#         loss1+=loss
-        
-        ## Gradient Accumulation to fit a larger batch size in the memory. 
-        if count % 4 == 0:
-#             loss1.backward()
+### Network Debugging
+#########################################################################
+
+### Creating function for Gradient Visualisation 
+def plot_grad_flow(result_directory,named_parameters): 
+    '''Plots the gradients flowing through different layers in the net during training.
+    Can be used for checking for possible gradient vanishing / exploding problems.
+    
+    Usage: Plug this function in Trainer class after loss.backwards() as 
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+    plt.figure(figsize=(10,10))
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(xmin=0, xmax=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.savefig(os.path.join(result_directory,"gradient_flow.png"))
+    
+
+### Layer Activation in CNNs 
+def hook_fn(visualisation,m, i, o):
+    visualisation[m] = o 
+    
+def get_all_layers(net):
+    for name, layer in net._modules.items():
+        #If it is a sequential, don't register a hook on it
+        # but recursively register hook on all it's module children
+        if isinstance(layer, nn.Sequential):
+            get_all_layers(layer)
+        else:
+          # it's a non sequential. Register a hook
+          layer.register_forward_hook(hook_fn)
+
+
+def visualise_layer_activations(net,input_): 
+    visualisation = {}
+    get_all_layers(net)
+    out = net(input_)
+    return visualisation  
+
+#########################################################
+
+
+def initialize_train_network(trainloader, testloader, debug): 
+
+    model = SRSN()
+    model = nn.DataParallel(model, device_ids = device_ids)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
+    criterion = nn.MSELoss().to(device)
+    best_loss=10000
+    train=[]
+    test=[]
+    model = model.to(device)
+    os.mkdir("/home/harsh.shukla/SRCNN/sr_results")
+    results = "/home/harsh.shukla/SRCNN/sr_results"
+    loss1=0
+    for epoch in range(3):
+        training_loss=[]
+        test_loss=[]
+        list_no=0
+        for input_,target in trainloader:
+            if torch.cuda.is_available():
+                input_ = input_.to(device)
+                target=target.to(device)
+            output = model(input_)
+            loss=criterion(output, target)
+            loss.backward()
+            if debug == True:
+                plot_grad_flow(results,model.named_parameters())
             optimizer.step()
             optimizer.zero_grad()
-            loss1=0
-        training_loss+=loss.item()
-        count+=1
-
-        label=im.fromarray(np.uint8(np.moveaxis(target[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-        output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-        label.save(os.path.join(results,str(epoch) + 'train_target' + '.png'))
-        output.save(os.path.join(results,str(epoch) + 'train_output' + '.png'))
-    with torch.set_grad_enabled(False):
-        for local_batch, local_labels in testloader:
-#             count+=1
-            # Transfer to GPU
-            local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-            output = model(local_batch).to(device)
-#             print(output[0].type)
-#             print(output[0].shape)
-            local_labels.require_grad = False
-            test_loss += criterion(output, local_labels).item()
-#             if count% 10 == 0:
-
-#     print(local_labels[0].cpu().detach().numpy().astype('int').shape)
-#     label=local_labels[0].cpu().detach().numpy()
-# #     PIL_image = im.fromarray(np.uint8(numpy_image)).convert('RGB')
-#     label=np.moveaxis(label,0,-1)
-#     label=im.fromarray(np.uint8(label*255)).convert('RGB')
-# #     print(label.shape)
-    label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
-    output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
-#     save_image(local_labels[0].int(),os.path.join(results,str(count) + 'target' + '.png'))
-#     save_image(output[0].int(),os.path.join(results,str(count) + 'output' + '.png'))
-            # Defining our loss function, comparing the output with the target
-            
+            training_loss.append(loss.item()*output.shape[0])
+        
+        with torch.set_grad_enabled(False):
+            for local_batch, local_labels in testloader:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss.append(criterion(output, local_labels).item())
+#                 visual_information = visualise_layer_activations(model,local_batch[0])
+                
+        if(debug == True):
+            label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
+            output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
   
-    train.append(training_loss/len(data_train))
-    test.append(test_loss/len(data_test))
-    if test_loss<best_loss:
-        best_loss=test_loss
-    print("Epoch :",epoch )
-    print("Training loss :",training_loss/len(data_train))
-    print("Test loss :",test_loss/len(data_test))
+        train.append(sum(training_loss)/len(training_loss))
+        test.append(sum(test_loss)/len(test_loss))
+        print("Epoch :",epoch, flush=True)
+        print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
+        print("Test loss :",sum(test_loss)/len(test_loss),flush=True)
 
-    print("-----------------------------------------------------------------------------------------------------------")
-try:
-    file = open("home/harsh.shukla/SRCNN/sr_results/SR_train_loss.txt", 'w+')
-    for i in range(len(test_loss)):
-        file.write(str(training_loss[i]) + ","  + str(test_loss[i]))
-        file.write('\n')
-finally:
-    file.close()
+        print("-----------------------------------------------------------------------------------------------------------")
+    try:
+        file = open(os.path.join(results,"SR_train_loss.txt"), 'w+')
+        try:
+            for i in range(len(test)):
+                file.write(str(train[i]) + ","  + str(test[i]))
+                file.write('\n')
+        finally:
+            file.close()
+    except IOError:
+        print("Unable to create loss file")
+    print("---------------------------------------------------------------------------------------------------------------")
+    print("Training Completed")
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m','--debug', help="Mode of Execution here")
+    parser.add_argument('-v','--visualise',help="Visualise Layer Activations")
+    args = parser.parse_args()
+    
+    grad_flow_flag = False
+    visualise_gradients = False
+    
+
+    if args.debug == "debug": 
+        print("Running in Debug Mode.....")
+        grad_flow_flag = True
+    
+    if args.visualise == "visualise": 
+        print("Running in Debug Mode.....")
+        visualise_gradients = True
+        
+    trainloader, testloader = process_and_train_load_data()
+    initialize_train_network(trainloader, testloader,grad_flow_flag)
+
+
     
     
-
-    
-
-
-

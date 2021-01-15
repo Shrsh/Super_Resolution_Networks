@@ -27,7 +27,7 @@ rm -rf Flickr2K.tar
 
 rsync -aP ada:/home/harsh.shukla/SRCNN/data/train/* /scratch/harsh_cnn/train/
 rsync -aP ada:/home/harsh.shukla/SRCNN/data/test/*  /scratch/harsh_cnn/test
-rsync -aP /scratch/harsh_cnn/Flickr2K/Flickr2K_HR/* /scratch/harsh_cnn/train
+rsync -aP /scratch/harsh_cnn/Flickr2K/Flickr2K_HR/* /scratch/harsh_cnn/train/
 
 echo "Train and Test Directories Prepared"
 echo "-----------------------------------"
@@ -50,7 +50,7 @@ cd ..
 echo "Pre Processing script started..."
 
 python /home/harsh.shukla/SRCNN/Codes/Super_Resolution_Net/Pre_Processing_SN.py
-python /home/harsh.shuka/SRCNN/Codes/Super_Resolution_Net/SRSN.py
+python /home/harsh.shukla/SRCNN/Codes/Super_Resolution_Net/SRSN.py
 
 echo "================================"
 echo "-- D-O-N-E---"
