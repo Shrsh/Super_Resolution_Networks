@@ -50,7 +50,15 @@ cd ..
 echo "Pre Processing script started..."
 
 python /home/harsh.shukla/SRCNN/Codes/Super_Resolution_Net/Pre_Processing_SN.py
-python /home/harsh.shukla/SRCNN/Codes/Super_Resolution_Net/SRSN.py
+cd train
+mv input y
+mv target x
+cd ..
+cd test
+mv input y
+mv target x
+cd ..
+python /home/harsh.shukla/SRCNN/Codes/GAN/GAN.py
 
 echo "================================"
 echo "-- D-O-N-E---"

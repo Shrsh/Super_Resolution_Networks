@@ -55,7 +55,8 @@ device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
 
-
+### Data Preparation ############################################
+################################################################
 def load_images_from_folder(folder):
     c=0
     images = []
@@ -76,43 +77,42 @@ def load_images_from_folder(folder):
         # if c==8
     return images
 
-train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
-train_input=np.asarray(train)
-train_input=np.moveaxis(train_input,1,-1)
-train_input=np.moveaxis(train_input,1,-1)
-train_input = train_input.astype(np.float32)
+def prepare_data(batch_size=50):
+    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
+    train_input=np.asarray(train)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input = train_input.astype(np.float32)
 
-train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/y')
-train_target=np.asarray(train)
-train_target=np.moveaxis(train_target,1,-1)
-train_target=np.moveaxis(train_target,1,-1)
-train_target = train_target.astype(np.float32)
-# if list_name1 == list_name2:
-#     print("True")
-# else:
-#     print("False")
+    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/y')
+    train_target=np.asarray(train)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target = train_target.astype(np.float32)
 
-test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/x')
-test_input=np.asarray(test)
-test_input=np.moveaxis(test_input,1,-1)
-test_input=np.moveaxis(test_input,1,-1)
-test_input = test_input.astype(np.float32)
+    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
 
-test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/y')
-test_target=np.asarray(test)
-test_target=np.moveaxis(test_target,1,-1)
-test_target=np.moveaxis(test_target,1,-1)
-test_target = test_target.astype(np.float32)
-data_train=[]
-data_test=[]
-for input, target in zip(train_input, train_target):
-    data_train.append([input, target])
+    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
+    data_train=[]
+    data_test=[]
+    
+    for input, target in zip(train_input, train_target):
+        data_train.append([input, target])
 
-for input, target in zip(test_input, test_target):
-    data_test.append([input, target])
+    for input, target in zip(test_input, test_target):
+        data_test.append([input, target])
 
-trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=32, shuffle=True)
-testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=32, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=size, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=size, shuffle=True)
+    return trainloader,testloader
 
 
 class DiscriminativeNet(torch.nn.Module):
@@ -255,8 +255,6 @@ def train_discriminator(optimizer, real_data, fake_data):
     
     # 1. Train on Real Data
     prediction_real = discriminator(real_data)
-#     print(prediction_real .shape)
-#     print(real_data.size(0))
     error_real = Bce_loss(prediction_real, Variable(torch.ones(real_data.size(0), 1)).to(device))
     error_real.backward()
 
@@ -273,97 +271,105 @@ def train_generator(optimizer, fake_data,real_data):
     ##Reconstruction loss
     loss=Mse_loss(fake_data, real_data)
     loss.backward(retain_graph=True)
-    
+
     prediction = discriminator(fake_data)
     error = Bce_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
     error.backward()
     
-    
     optimizer.step()
-    return error+loss
+    return error
 
+def train_network(num_epochs=200):
 
-discriminator = DiscriminativeNet()
-model=SRSN()
-model = model.to(device)
-discriminator=discriminator.to(device)
-model = nn.DataParallel(model, device_ids = device_ids)
-d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
-Mse_loss = nn.MSELoss().to(device)
-Bce_loss = nn.BCELoss().to(device)
+    discriminator = DiscriminativeNet()
+    model=SRSN()
+    model = model.to(device)
+    discriminator=discriminator.to(device)
+    model = nn.DataParallel(model, device_ids = device_ids)
+    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
 
-best_loss=10000
-train_d=[]
-train_g=[]
-test=[]
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.00001, betas=(0.5, 0.999))
+    g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
 
-os.mkdir("/home/harsh.shukla/SRCNN/GAN_results")
-results = "/home/harsh.shukla/SRCNN/GAN_results"
-count = 0
-loss1=0
-for epoch in range(2500):
-    training_loss_d=0
-    training_loss_g=0
-    test_loss=0
+    Mse_loss = nn.MSELoss().to(device)
+    Bce_loss = nn.BCELoss().to(device)
 
-    list_no=0
-    for input_,real_data in trainloader:
-        if torch.cuda.is_available():
-            input_ = input_.to(device)
-            real_data=real_data.to(device)
-
-        fake_data = model(input_)
-        d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data)
-        g_error = train_generator(g_optimizer, fake_data, real_data)
-        training_loss_d+=d_error.item()
-        training_loss_g+=g_error.item()
-        
-
-    lab=im.fromarray(np.uint8(np.moveaxis(real_data[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    out=im.fromarray(np.uint8(np.moveaxis(fake_data[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    lab.save(os.path.join(results,str(epoch) + 'train_target' + '.png'))
-    out.save(os.path.join(results,str(epoch) + 'train_output' + '.png'))
-
-        
-    with torch.set_grad_enabled(False):
-        for local_batch, local_labels in testloader:
-#             count+=1
-            # Transfer to GPU
-            local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-            output = model(local_batch).to(device)
-#             print(output[0].type)
-#             print(output[0].shape)
-            local_labels.require_grad = False
-            test_loss += Mse_loss(output, local_labels).item()
-
-    label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-    label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
-    output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
-
-  
-    train_d.append(training_loss_d/len(data_train))
-    train_g.append(training_loss_g/len(data_train))
-    test.append(test_loss/len(data_test))
-    if test_loss<best_loss:
-        best_loss=test_loss
-    print("Epoch :",epoch )
-    print("Discriminator Loss :",train_d[-1])
-    print("Generator Loss :",train_g[-1])
+    train_d=[]
+    train_g=[]
+    test=[]
     
-    print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
-    print("Test loss :",test_loss/len(data_test))
+    results = "/home/harsh.shukla/SRCNN/GAN_results"
+    if not os.path.exists(directory):
+        os.makedirs(results)
+    for epoch in range(num_epochs):
+        training_loss_d=0
+        training_loss_g=0
+        test_loss=0
 
-    print("-----------------------------------------------------------------------------------------------------------")
-try:
-    file = open("home/harsh.shukla/SRCNN/sr_results/SR_train_loss.txt", 'w+')
-    for i in range(len(test_loss)):
-        file.write(str(training_loss[i]) + ","  + str(test_loss[i]))
-        file.write('\n')
-finally:
-    file.close()
+        list_no=0
+        for input_,real_data in trainloader:
+            if torch.cuda.is_available():
+                input_ = input_.to(device)
+                real_data=real_data.to(device)
+
+            fake_data = model(input_)
+            d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data)
+            g_error = train_generator(g_optimizer, fake_data, real_data)
+            training_loss_d+=d_error.item()
+            training_loss_g+=g_error.item()
+
+        with torch.set_grad_enabled(False):
+            for local_batch, local_labels in testloader:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss += Mse_loss(output, local_labels).item()
+
+        label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+        output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+        label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
+        output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
+
+
+        train_d.append(sum(training_loss_d)/len(training_loss_d))
+        train_g.append(sum(training_loss_g)/len(training_loss_g))
+        test.append(sum(test_loss)/len(test_loss))
+
+        print("Epoch :",epoch )
+        print("Discriminator Loss :",train_d[-1])
+        print("Generator Loss :",train_g[-1])
+
+        print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
+        print("Test loss :",test_loss/len(data_test))
+
+        print("-----------------------------------------------------------------------------------------------------------")
+    try:
+        file = open(os.path.join(results,"GAN_train_loss.txt"), 'w+')
+        try:
+            for i in range(len(test)):
+                file.write(str(train_d[i]) + ","  + str(train_g[i]) + "," + str(test[i]))
+                file.write('\n')
+        finally:
+            file.close()
+    except IOError:
+        print("Unable to create loss file")
+    print("---------------------------------------------------------------------------------------------------------------")
+    print("Training Completed")
     
 
+if __name__ == '__main__':
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('-m','--debug', help="Mode of Execution here")
+#     args = parser.parse_args()
+    
+#     grad_flow_flag = False
+
+
+#     if args.debug == "debug": 
+#         print("Running in Debug Mode.....")
+#         grad_flow_flag = True
+
+    trainloader, testloader = prepare_data()
+    initialize_train_network(trainloader, testloader,)
 
 
