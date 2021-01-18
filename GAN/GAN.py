@@ -48,6 +48,8 @@ from pytorch_lightning import loggers as pl_loggers
 import warnings
 warnings.filterwarnings("ignore")
 from IPython.display import clear_output
+import argparse 
+
 
 use_cuda = torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
@@ -56,7 +58,78 @@ device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
 from prettytable import PrettyTable
 
+### Network Debugging
+#########################################################################
 
+### Creating function for Gradient Visualisation 
+def plot_grad_flow(result_directory,named_parameters,model_name): 
+    
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+    plt.figure(figsize=(12,12))
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(xmin=0, xmax=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.savefig(os.path.join(result_directory, model_name + "gradient_flow.png" ))
+    
+### Get all the children layers 
+def get_children(model: torch.nn.Module):
+    # get children form model!
+    children = list(model.children())
+    flatt_children = []
+    if children == []:
+        # if model has no children; model is last child! :O
+        return model
+    else:
+       # look for children from children... to the last child!
+       for child in children:
+            try:
+                flatt_children.extend(get_children(child))
+            except TypeError:
+                flatt_children.append(get_children(child))
+    return flatt_children
+    
+
+### Layer Activation in CNNs 
+
+    
+def visualise_layer_activation(model,local_batch,result_directory):
+    activation = {}
+    def get_activation(name):
+        def hook(model, input, output):
+            activation[name] = output.detach()
+        return hook
+    layer_name = 'conv1'
+    model.module.conv1.register_forward_hook(get_activation(layer_name))
+    output = model(local_batch)
+    act = activation[layer_name].squeeze()
+    print(act.shape)
+    #plot subplots for different images
+    for i in range(act[0].shape[0]):
+        output = im.fromarray(np.uint8(np.moveaxis(act[0][i].cpu().detach().numpy(), 0, -1))).convert('RGB')
+        output.save(os.path.join(result_directory,str(i)+'.png'))
+        #
+
+### Visualising Conv Filters
+def visualise_conv_filters(model,result_directory):
+    kernels = model.conv1.weight.detach()
+    print(kernels.shape)
+    # fig, axarr = plt.subplots(kernels.size(0))
+    # for i in range(kernels.shape[0]):
+    #     plt.savefig()
+    # for idx in range(kernels.size(0)):
+    #     axarr[idx].imsave(kernels[idx].squeeze(),result_directory + "1.png")
+    #
+    
 def count_parameters(model):
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
@@ -68,7 +141,11 @@ def count_parameters(model):
     print(table)
     print(f"Total Trainable Params: {total_params}")
     return total_params
-    
+
+#########################################################################################################################################################################################################
+
+
+
 
 ### Data Preparation ############################################
 ################################################################
@@ -129,6 +206,7 @@ def prepare_data(b_size=50):
     testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=b_size, shuffle=True)
     return trainloader,testloader
 
+################################################################
 
 class DiscriminativeNet(torch.nn.Module):
     
@@ -296,7 +374,7 @@ def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
 
 
 
-def train_network(trainloader, testloader,num_epochs=200):
+def train_network(debug,trainloader, testloader,num_epochs=200):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
@@ -328,24 +406,31 @@ def train_network(trainloader, testloader,num_epochs=200):
     checkpoints = os.path.join(results,"Checkpoints")
     if not os.path.exists(checkpoints):
         os.makedirs(checkpoints)
-    checkpoint_file = os.path.join(checkpoints,"check.pt")    
-        
+    checkpoint_file = os.path.join(checkpoints,"check.pt")  
+    
+    # Initialising directory for Network Debugging
+    net_debug = os.path.join(results,"Debug")
+    if not os.path.exists(net_debug):
+        os.makedirs(net_debug)
+    
+    model = nn.DataParallel(model, device_ids = device_ids)
+    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
     # load model if exists
     if os.path.exists(checkpoint_file):
-        if config.resume:
-            print("Loading from Previous Checkpoint...")
-            checkpoint = torch.load(checkpoint_file)
-            model.load_state_dict(checkpoint['generator_state_dict'])
-            discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
-            g_optimizer.load_state_dict(checkpoint['g_state_dict'])
-            d_optimizer.load_state_dict(checkpoint['d_state_dict'])
-            model.train()
-            discriminator.train()
+        print("Loading from Previous Checkpoint...")
+        checkpoint = torch.load(checkpoint_file)
+        model.load_state_dict(checkpoint['generator_state_dict'])
+        discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
+        g_optimizer.load_state_dict(checkpoint['g_state_dict'])
+        d_optimizer.load_state_dict(checkpoint['d_state_dict'])
+        model.train()
+        discriminator.train()
     else:
         print("No previous checkpoints exist, initialising network from start...")
         
-    model = nn.DataParallel(model, device_ids = device_ids)
-    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
+    
+    
+    
 
     for epoch in range(num_epochs):
         training_loss_d=[]
@@ -363,18 +448,12 @@ def train_network(trainloader, testloader,num_epochs=200):
             g_error = train_generator(g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
             training_loss_d.append(d_error.item())
             training_loss_g.append(g_error.item())
+        
+        #Plotting Gradient Flow for both the models
+        if(debug == True): 
+            plot_grad_flow(net_debug,model.named_parameters(),"generator")
+            plot_grad_flow(net_debug,discriminator.named_parameters(),"discriminator")
 
-        with torch.set_grad_enabled(False):
-            for local_batch, local_labels in testloader:
-                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output = model(local_batch).to(device)
-                local_labels.require_grad = False
-                test_loss.append(Mse_loss(output, local_labels).item())
-
-        label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-        output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-        label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
-        output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
         
         ##Creating Checkpoints
         if epoch % 2 == 0:
@@ -384,6 +463,20 @@ def train_network(trainloader, testloader,num_epochs=200):
                 'g_state_dict': g_optimizer.state_dict(),
                 'd_state_dict': d_optimizer.state_dict(),
                 }, checkpoint_file)
+            
+        
+        with torch.set_grad_enabled(False):
+            for local_batch, local_labels in testloader:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss.append(Mse_loss(output, local_labels).item())
+                
+        if debug == True:
+            label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
+            output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
         
         #Calculating average loss per epoch
         train_d.append(sum(training_loss_d)/len(training_loss_d))
@@ -414,7 +507,19 @@ def train_network(trainloader, testloader,num_epochs=200):
 
 if __name__ == '__main__':
     
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m','--debug', help="Mode of Execution here")
+    args = parser.parse_args()
+    
+    grad_flow_flag = False
+
+
+    if args.debug == "debug": 
+        print("Running in Debug Mode.....")
+        grad_flow_flag = True
+
+    
     trainloader, testloader = prepare_data(b_size=40)
-    train_network(trainloader, testloader,num_epochs=3)
+    train_network(grad_flow_flag,trainloader, testloader,num_epochs=300)
 
 
