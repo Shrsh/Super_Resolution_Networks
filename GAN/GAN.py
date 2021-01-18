@@ -294,14 +294,14 @@ def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     optimizer.step()
     return (error+loss)
 
+
+
 def train_network(trainloader, testloader,num_epochs=200):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
     model = model.to(device)
     discriminator=discriminator.to(device)
-    model = nn.DataParallel(model, device_ids = device_ids)
-    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
 
     d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0001, betas=(0.5, 0.999))
     g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
@@ -320,8 +320,33 @@ def train_network(trainloader, testloader,num_epochs=200):
     count_parameters(discriminator)
     
     results = "/home/harsh.shukla/SRCNN/GAN_results"
+    
     if not os.path.exists(results):
         os.makedirs(results)
+        
+    # Initialising Checkpointing directory 
+    checkpoints = os.path.join(results,"Checkpoints")
+    if not os.path.exists(checkpoints):
+        os.makedirs(checkpoints)
+    checkpoint_file = os.path.join(checkpoints,"check.pt")    
+        
+    # load model if exists
+    if os.path.exists(checkpoint_file):
+        if config.resume:
+            print("Loading from Previous Checkpoint...")
+            checkpoint = torch.load(checkpoint_file)
+            model.load_state_dict(checkpoint['generator_state_dict'])
+            discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
+            g_optimizer.load_state_dict(checkpoint['g_state_dict'])
+            d_optimizer.load_state_dict(checkpoint['d_state_dict'])
+            model.train()
+            discriminator.train()
+    else:
+        print("No previous checkpoints exist, initialising network from start...")
+        
+    model = nn.DataParallel(model, device_ids = device_ids)
+    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
+
     for epoch in range(num_epochs):
         training_loss_d=[]
         training_loss_g=[]
@@ -350,8 +375,17 @@ def train_network(trainloader, testloader,num_epochs=200):
         output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
         label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
         output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
-
-
+        
+        ##Creating Checkpoints
+        if epoch % 2 == 0:
+            torch.save({
+                'generator_state_dict': model.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
+                'g_state_dict': g_optimizer.state_dict(),
+                'd_state_dict': d_optimizer.state_dict(),
+                }, checkpoint_file)
+        
+        #Calculating average loss per epoch
         train_d.append(sum(training_loss_d)/len(training_loss_d))
         train_g.append(sum(training_loss_g)/len(training_loss_g))
         test.append(sum(test_loss)/len(test_loss))
@@ -379,18 +413,8 @@ def train_network(trainloader, testloader,num_epochs=200):
     
 
 if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('-m','--debug', help="Mode of Execution here")
-#     args = parser.parse_args()
     
-#     grad_flow_flag = False
-
-
-#     if args.debug == "debug": 
-#         print("Running in Debug Mode.....")
-#         grad_flow_flag = True
-
     trainloader, testloader = prepare_data(b_size=40)
-    train_network(trainloader, testloader,300)
+    train_network(trainloader, testloader,num_epochs=3)
 
 
