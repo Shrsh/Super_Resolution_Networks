@@ -54,6 +54,21 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
+from prettytable import PrettyTable
+
+
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        table.add_row([name, param])
+        total_params+=param
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
+    
 
 ### Data Preparation ############################################
 ################################################################
@@ -77,7 +92,7 @@ def load_images_from_folder(folder):
         # if c==8
     return images
 
-def prepare_data(batch_size=50):
+def prepare_data(b_size=50):
     train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
     train_input=np.asarray(train)
     train_input=np.moveaxis(train_input,1,-1)
@@ -110,8 +125,8 @@ def prepare_data(batch_size=50):
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=size, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=size, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=b_size, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=b_size, shuffle=True)
     return trainloader,testloader
 
 
@@ -250,36 +265,36 @@ class ResnetBlock(torch.nn.Module):
 
         return out
 
-def train_discriminator(optimizer, real_data, fake_data):
+def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     optimizer.zero_grad()
     
     # 1. Train on Real Data
     prediction_real = discriminator(real_data)
-    error_real = Bce_loss(prediction_real, Variable(torch.ones(real_data.size(0), 1)).to(device))
+    error_real = b_loss(prediction_real, Variable(torch.ones(real_data.size(0), 1)).to(device))
     error_real.backward()
 
     # 2. Train on Fake Data
     prediction_fake = discriminator(fake_data.detach())
-    error_fake = Bce_loss(prediction_fake, Variable(torch.zeros(real_data.size(0), 1)).to(device))
+    error_fake = b_loss(prediction_fake, Variable(torch.zeros(real_data.size(0), 1)).to(device))
     error_fake.backward()
     optimizer.step()
     return error_real + error_fake, prediction_real, prediction_fake
 
-def train_generator(optimizer, fake_data,real_data):
+def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     optimizer.zero_grad()
     
     ##Reconstruction loss
-    loss=Mse_loss(fake_data, real_data)
+    loss=m_loss(fake_data, real_data)
     loss.backward(retain_graph=True)
 
     prediction = discriminator(fake_data)
-    error = Bce_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
+    error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
     error.backward()
     
     optimizer.step()
-    return error
+    return (error+loss)
 
-def train_network(num_epochs=200):
+def train_network(trainloader, testloader,num_epochs=200):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
@@ -288,7 +303,7 @@ def train_network(num_epochs=200):
     model = nn.DataParallel(model, device_ids = device_ids)
     discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
 
-    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.00001, betas=(0.5, 0.999))
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0001, betas=(0.5, 0.999))
     g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
 
     Mse_loss = nn.MSELoss().to(device)
@@ -298,13 +313,19 @@ def train_network(num_epochs=200):
     train_g=[]
     test=[]
     
+    ## Parameters in Networks
+    print("Number of Parameters in Generator")
+    count_parameters(model)
+    print("Number of Parameters in Discriminator")
+    count_parameters(discriminator)
+    
     results = "/home/harsh.shukla/SRCNN/GAN_results"
-    if not os.path.exists(directory):
+    if not os.path.exists(results):
         os.makedirs(results)
     for epoch in range(num_epochs):
-        training_loss_d=0
-        training_loss_g=0
-        test_loss=0
+        training_loss_d=[]
+        training_loss_g=[]
+        test_loss=[]
 
         list_no=0
         for input_,real_data in trainloader:
@@ -313,17 +334,17 @@ def train_network(num_epochs=200):
                 real_data=real_data.to(device)
 
             fake_data = model(input_)
-            d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data)
-            g_error = train_generator(g_optimizer, fake_data, real_data)
-            training_loss_d+=d_error.item()
-            training_loss_g+=g_error.item()
+            d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
+            g_error = train_generator(g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
+            training_loss_d.append(d_error.item())
+            training_loss_g.append(g_error.item())
 
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
-                test_loss += Mse_loss(output, local_labels).item()
+                test_loss.append(Mse_loss(output, local_labels).item())
 
         label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
         output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
@@ -340,7 +361,7 @@ def train_network(num_epochs=200):
         print("Generator Loss :",train_g[-1])
 
         print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
-        print("Test loss :",test_loss/len(data_test))
+        print("Test loss :",test[-1])
 
         print("-----------------------------------------------------------------------------------------------------------")
     try:
@@ -369,7 +390,7 @@ if __name__ == '__main__':
 #         print("Running in Debug Mode.....")
 #         grad_flow_flag = True
 
-    trainloader, testloader = prepare_data()
-    initialize_train_network(trainloader, testloader,)
+    trainloader, testloader = prepare_data(b_size=40)
+    train_network(trainloader, testloader,300)
 
 
