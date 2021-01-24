@@ -49,7 +49,7 @@ import warnings
 warnings.filterwarnings("ignore")
 from IPython.display import clear_output
 import argparse 
-
+import pickle as pkl
 
 use_cuda = torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
@@ -239,30 +239,30 @@ class DiscriminativeNet(torch.nn.Module):
         self.conv4 = nn.Sequential(
             nn.Conv2d(
                 in_channels=128, out_channels=256, kernel_size=4,
-                stride=2, padding=1, bias=False
+                stride=4, padding=0, bias=False
             ),
             nn.LeakyReLU(0.2, inplace=True),
               nn.BatchNorm2d(256)
         )
-        self.conv5 = nn.Sequential(
-            nn.Conv2d(
-                in_channels=256, out_channels=512, kernel_size=4,
-                stride=2, padding=1, bias=False
-            ),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.BatchNorm2d(512)
-        )
-        self.conv6 = nn.Sequential(
-            nn.Conv2d(
-                in_channels=512, out_channels=256, kernel_size=4,
-                stride=2, padding=1, bias=False
-            ),
-            nn.BatchNorm2d(256)
-        )
+#         self.conv5 = nn.Sequential(
+#             nn.Conv2d(
+#                 in_channels=256, out_channels=512, kernel_size=4,
+#                 stride=2, padding=1, bias=False
+#             ),
+#             nn.LeakyReLU(0.2, inplace=True),
+#             nn.BatchNorm2d(512)
+#         )
+#         self.conv6 = nn.Sequential(
+#             nn.Conv2d(
+#                 in_channels=512, out_channels=256, kernel_size=4,
+#                 stride=2, padding=1, bias=False
+#             ),
+#             nn.BatchNorm2d(256)
+#         )
         self.conv7 = nn.Sequential(
             nn.Conv2d(
                 in_channels=256, out_channels=128, kernel_size=4,
-                stride=2, padding=1, bias=False
+                stride=4, padding=0, bias=False
             ),
             nn.BatchNorm2d(128)
         )
@@ -282,8 +282,8 @@ class DiscriminativeNet(torch.nn.Module):
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
-        x = self.conv5(x)
-        x = F.relu(self.conv6(x))
+#         x = self.conv5(x)
+#         x = F.relu(self.conv6(x))
         x = F.relu(self.conv7(x))
         
         # Flatten and apply sigmoid
@@ -304,10 +304,11 @@ class SRSN(nn.Module):
         self.conv1 = torch.nn.Conv2d(3, 64, 3, 1, 1)
         self.conv2 = torch.nn.Conv2d(64, 32, 1, 1, 0)
         self.resnet = nn.Sequential(
-            ResnetBlock(dim, 3, 1, 1, bias=True),
-            ResnetBlock(dim, 3, 1, 1, bias=True),
-            ResnetBlock(dim, 3, 1, 1, bias=True),
-            ResnetBlock(dim, 3, 1, 1, bias=True),)
+            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
+            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
+            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
+            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
+            Modified_Resnet_Block(dim, 3, 1, 1, bias=True))
         self.conv3=torch.nn.Conv2d(32, 16, 1, 1, 0)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
@@ -342,13 +343,39 @@ class ResnetBlock(torch.nn.Module):
         out = out + x
 
         return out
+    
+class Modified_Resnet_Block(torch.nn.Module):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
+        super(Modified_Resnet_Block, self).__init__()
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+
+        self.act1 = torch.nn.ReLU(inplace=True)
+        self.act2 = torch.nn.ReLU(inplace=True)
+        self.act3 = torch.nn.ReLU(inplace=True)
+
+
+    def forward(self, x):
+        
+        out = self.conv1(self.act1(x))
+        out = out + x
+        
+        out1 = self.conv2(self.act2(out))
+        out1 = x + out1 + out
+        
+        out2 = self.conv3(self.act3(out1))
+        out2 = out2 + out1 + out + x
+
+        return out2
 
 def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     optimizer.zero_grad()
     
     # 1. Train on Real Data
     prediction_real = discriminator(real_data)
-    error_real = b_loss(prediction_real, Variable(torch.ones(real_data.size(0), 1)).to(device))
+    truth_real=Variable(torch.ones(real_data.size(0), 1))-0.1
+    error_real = b_loss(prediction_real, truth_real.to(device))
     error_real.backward()
 
     # 2. Train on Fake Data
@@ -361,34 +388,37 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     optimizer.zero_grad()
     
+    lambda_ = 0.001
+    
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
-    loss.backward(retain_graph=True)
-
+    ## Adversarial Loss 
     prediction = discriminator(fake_data)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
-    error.backward()
-    
+    total_loss = lambda_*loss + error 
+    total_loss.backward()
     optimizer.step()
-    return (error+loss)
+    return loss,error,total_loss
 
 
 
-def train_network(debug,trainloader, testloader,num_epochs=200):
+def train_network(debug,trainloader, testloader,num_epochs=200,K=5):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
     model = model.to(device)
     discriminator=discriminator.to(device)
 
-    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0001, betas=(0.5, 0.999))
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.00005, betas=(0.5, 0.999))
     g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
 
     Mse_loss = nn.MSELoss().to(device)
     Bce_loss = nn.BCELoss().to(device)
 
     train_d=[]
-    train_g=[]
+    train_g = []
+    train_g_rec=[]
+    train_g_dis=[]
     test=[]
     
     ## Parameters in Networks
@@ -427,16 +457,14 @@ def train_network(debug,trainloader, testloader,num_epochs=200):
         discriminator.train()
     else:
         print("No previous checkpoints exist, initialising network from start...")
-        
-    
-    
-    
 
     for epoch in range(num_epochs):
         training_loss_d=[]
-        training_loss_g=[]
+        training_rec_loss_g=[]
+        training_dis_loss_g=[]
+        training_loss_g = []
         test_loss=[]
-
+        count = 0
         list_no=0
         for input_,real_data in trainloader:
             if torch.cuda.is_available():
@@ -444,26 +472,19 @@ def train_network(debug,trainloader, testloader,num_epochs=200):
                 real_data=real_data.to(device)
 
             fake_data = model(input_)
-            d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
-            g_error = train_generator(g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
-            training_loss_d.append(d_error.item())
+            if count == K:
+                d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
+                training_loss_d.append(d_error.item())
+                count = 0
+            g_rec_error,g_dis_error,g_error = train_generator(g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
+            training_rec_loss_g.append(g_rec_error.item())
+            training_dis_loss_g.append(g_dis_error.item())
             training_loss_g.append(g_error.item())
-        
+            count += 1 
         #Plotting Gradient Flow for both the models
         if(debug == True): 
             plot_grad_flow(net_debug,model.named_parameters(),"generator")
             plot_grad_flow(net_debug,discriminator.named_parameters(),"discriminator")
-
-        
-        ##Creating Checkpoints
-        if epoch % 2 == 0:
-            torch.save({
-                'generator_state_dict': model.state_dict(),
-                'discriminator_state_dict': discriminator.state_dict(),
-                'g_state_dict': g_optimizer.state_dict(),
-                'd_state_dict': d_optimizer.state_dict(),
-                }, checkpoint_file)
-            
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader:
@@ -480,12 +501,29 @@ def train_network(debug,trainloader, testloader,num_epochs=200):
         
         #Calculating average loss per epoch
         train_d.append(sum(training_loss_d)/len(training_loss_d))
+        train_g_rec.append(sum(training_rec_loss_g)/len(training_rec_loss_g))
+        train_g_dis.append(sum(training_dis_loss_g)/len(training_dis_loss_g))
         train_g.append(sum(training_loss_g)/len(training_loss_g))
         test.append(sum(test_loss)/len(test_loss))
-
+        ##Creating Checkpoints
+        if epoch % 5 == 0:
+            torch.save({
+                'generator_state_dict': model.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
+                'g_state_dict': g_optimizer.state_dict(),
+                'd_state_dict': d_optimizer.state_dict(),
+                }, checkpoint_file)
+            with open(os.path.join(results,"Generator_loss.txt"), 'wb') as f:
+                pkl.dump(train_g ,f)
+            with open(os.path.join(results,"Discriminator_loss.txt"), 'wb') as f:
+                pkl.dump(train_d ,f)
+            with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
+                pkl.dump(test,f )
         print("Epoch :",epoch )
         print("Discriminator Loss :",train_d[-1])
-        print("Generator Loss :",train_g[-1])
+        print("Generator Reconstruction Loss :",train_g_rec[-1])
+        print("Generator Adversarial Loss :",train_g_dis[-1])
+        print("Total Generator Loss:",train_g[-1])
 
         print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
         print("Test loss :",test[-1])
@@ -517,9 +555,11 @@ if __name__ == '__main__':
     if args.debug == "debug": 
         print("Running in Debug Mode.....")
         grad_flow_flag = True
-
+    
+    
     
     trainloader, testloader = prepare_data(b_size=40)
+    print("Initialised Data Loaders")
     train_network(grad_flow_flag,trainloader, testloader,num_epochs=300)
 
 
