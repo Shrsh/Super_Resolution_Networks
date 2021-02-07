@@ -169,7 +169,7 @@ def load_images_from_folder(folder):
         # if c==8
     return images
 
-def prepare_data(b_size=50):
+def prepare_data(b_size=8):
     train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
     train_input=np.asarray(train)
     train_input=np.moveaxis(train_input,1,-1)
@@ -298,26 +298,37 @@ class DiscriminativeNet(torch.nn.Module):
         return x
     
 class SRSN(nn.Module):
-    def __init__(self, input_dim=3, dim=32, scale_factor=4):
+    def __init__(self, input_dim=3, dim=64, scale_factor=4):
         super(SRSN, self).__init__()
+#         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
+        self.conv2 = torch.nn.Conv2d(128, 64, 1, 1, 0)
+        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
+        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
+        self.resnet3 = Modified_Resnet_Block(dim, 5, 1, 2, bias=True)
+        self.resnet4 = Modified_Resnet_Block(dim, 3, 1, 1, bias=True)
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
-        self.conv1 = torch.nn.Conv2d(3, 64, 3, 1, 1)
-        self.conv2 = torch.nn.Conv2d(64, 32, 1, 1, 0)
-        self.resnet = nn.Sequential(
-            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
-            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
-            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
-            Modified_Resnet_Block(dim, 3, 1, 1, bias=True),
-            Modified_Resnet_Block(dim, 3, 1, 1, bias=True))
-        self.conv3=torch.nn.Conv2d(32, 16, 1, 1, 0)
+        self.conv3=torch.nn.Conv2d(64, 16, 1, 1, 0)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
     def forward(self, LR):
-        LR_feat = F.relu(self.conv1(self.up(LR)))
-        LR_feat = (F.relu(self.conv2(LR_feat)))
-        # print(LR_feat.shape)
-        LR_feat = self.resnet(LR_feat)
-        SR=F.relu(self.conv3(LR_feat))
+        LR_feat = F.leaky_relu(self.conv1(LR))
+        LR_feat = (F.leaky_relu(self.conv2(LR_feat)))
+        
+        ##Creating Skip connection between dense blocks 
+        out = self.resnet1(LR_feat) 
+        out = out + LR_feat
+        out1= self.resnet2(out)
+        out1= out + out1
+        
+        out2 = self.resnet3(out1)
+        out2 = out + out2
+        
+        out3 = self.resnet4(out2)
+        out3 = out + out1 + out3 
+        out3 = self.up(out3)
+        #LR_feat = self.resnet(out3)
+        SR=F.leaky_relu(self.conv3(out3))
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR
@@ -328,8 +339,8 @@ class ResnetBlock(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
         self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
-        self.act1 = torch.nn.ReLU(inplace=True)
-        self.act2 = torch.nn.ReLU(inplace=True)
+        self.act1 = torch.nn.LeakyReLU(inplace=True)
+        self.act2 = torch.nn.LeakyReLU(inplace=True)
 
 
     def forward(self, x):
@@ -351,9 +362,9 @@ class Modified_Resnet_Block(torch.nn.Module):
         self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
         self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
-        self.act1 = torch.nn.ReLU(inplace=True)
-        self.act2 = torch.nn.ReLU(inplace=True)
-        self.act3 = torch.nn.ReLU(inplace=True)
+        self.act1 = torch.nn.LeakyReLU(inplace=True)
+        self.act2 = torch.nn.LeakyReLU(inplace=True)
+        self.act3 = torch.nn.LeakyReLU(inplace=True)
 
 
     def forward(self, x):
@@ -385,10 +396,10 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     optimizer.step()
     return error_real + error_fake, prediction_real, prediction_fake
 
-def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
+def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     optimizer.zero_grad()
     
-    lambda_ = 0.001
+    lambda_ = 0.00001
     
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
@@ -397,19 +408,21 @@ def train_generator(optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
     total_loss = lambda_*loss + error 
     total_loss.backward()
+#     clipping_value = 1 
+#     torch.nn.utils.clip_grad_norm_(model.parameters(), clipping_value)
     optimizer.step()
     return loss,error,total_loss
 
 
 
-def train_network(debug,trainloader, testloader,num_epochs=200,K=5):
+def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
     model = model.to(device)
     discriminator=discriminator.to(device)
 
-    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.00005, betas=(0.5, 0.999))
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.00001, betas=(0.5, 0.999))
     g_optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
 
     Mse_loss = nn.MSELoss().to(device)
@@ -476,7 +489,7 @@ def train_network(debug,trainloader, testloader,num_epochs=200,K=5):
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.item())
                 count = 0
-            g_rec_error,g_dis_error,g_error = train_generator(g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
+            g_rec_error,g_dis_error,g_error = train_generator(model,g_optimizer, fake_data, real_data,discriminator,Bce_loss,Mse_loss)
             training_rec_loss_g.append(g_rec_error.item())
             training_dis_loss_g.append(g_dis_error.item())
             training_loss_g.append(g_error.item())
@@ -558,7 +571,7 @@ if __name__ == '__main__':
     
     
     
-    trainloader, testloader = prepare_data(b_size=40)
+    trainloader, testloader = prepare_data(b_size=23)
     print("Initialised Data Loaders")
     train_network(grad_flow_flag,trainloader, testloader,num_epochs=300)
 
