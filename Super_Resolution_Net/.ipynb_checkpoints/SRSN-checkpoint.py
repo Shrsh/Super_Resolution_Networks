@@ -322,7 +322,7 @@ def initialize_train_network(trainloader, testloader, debug):
     model = model.to(device)
    
     loss1=0
-    for epoch in range(300):
+    for epoch in range(500):
         training_loss=[]
         test_loss=[]
         list_no=0

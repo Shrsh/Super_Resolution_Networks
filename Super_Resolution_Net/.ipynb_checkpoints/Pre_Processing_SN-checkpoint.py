@@ -35,13 +35,13 @@ class pre_process:
             print(i)
             #center crop the images, 128*800
             im = Image.open(i)
-            left = int(im.size[0]/2-512/2)
-            upper = int(im.size[1]/2-512/2)
-            right = left + 512
-            lower = upper + 512
+            left = int(im.size[0]/2-256/2)
+            upper = int(im.size[1]/2-256/2)
+            right = left + 256
+            lower = upper + 256
             im = im.crop((left, upper,right,lower))
             im.save(os.path.join(processed_input, str(self.count) + '.png'))
-            im = im.resize((128,128))
+            im = im.resize((64,64))
             im.save(os.path.join(processed_target, str(self.count)  + '.png'))
             self.count+=1
 #             if i.split('.')[0][-1]== path[-1] :

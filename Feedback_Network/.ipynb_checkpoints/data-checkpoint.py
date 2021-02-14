@@ -21,8 +21,8 @@ class pre_process:
 #             processed_dir = "/home/harsh.shukla/SRCNN/SR_data/train/target"
         else:
             path = self.test_path
-            processed_input = "/scratch/harsh_cnn/SR_data/test/input"
-            processed_target = "/scratch/harsh_cnn/SR_data/test/target"
+            processed_input = "/home/harsh.shukla/SRCNN/HR_LR_data/test/x"
+            processed_target = "/home/harsh.shukla/SRCNN/HR_LR_data/test/y"
 #             processed_dir = "/home/harsh.shukla/SRCNN/SR_data/test/target"
         
         os.chdir(path)
@@ -56,12 +56,12 @@ class pre_process:
 
 ##Div 2k
 train_directory = "/scratch/harsh_cnn/train"
-test_directory = "/scratch/harsh_cnn/test"
+test_directory = "/home/harsh.shukla/SRCNN/test_Data/Urban100"
 
 ##Real SR
 # train_directory = "/home/harsh.shukla/SRCNN/RealSR (ICCV2019)/Nikon/Train/2"
 # test_directory = "/home/harsh.shukla/SRCNN/RealSR (ICCV2019)/Nikon/Test/2"
 
 ob = pre_process(test_directory,train_directory)
-ob.process("train")
+# ob.process("train")
 ob.process("test")
