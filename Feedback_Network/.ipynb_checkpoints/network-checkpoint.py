@@ -477,7 +477,7 @@ def initialize_train_network(debug,trainloader, testloader):
     model = SRFBN(3,3,64,3,4,4)
     model = nn.DataParallel(model, device_ids = device_ids)
     model = model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
     test_criterion = nn.MSELoss().to(device)
     criterion=nn.L1Loss().to(device)
 #     test_crit
@@ -502,7 +502,7 @@ def initialize_train_network(debug,trainloader, testloader):
     model = model.to(device)
    
     loss1=0
-    for epoch in range(500):
+    for epoch in range(300):
         training_loss=[]
         test_loss=[]
         list_no=0

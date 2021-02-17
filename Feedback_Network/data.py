@@ -40,9 +40,9 @@ class pre_process:
             right = left + 256
             lower = upper + 256
             im = im.crop((left, upper,right,lower))
-            im.save(os.path.join(processed_input, str(self.count) + '.png'))
+            im.save(os.path.join(processed_target, str(self.count) + '.png'))
             im = im.resize((64,64))
-            im.save(os.path.join(processed_target, str(self.count)  + '.png'))
+            im.save(os.path.join(processed_input, str(self.count)  + '.png'))
             self.count+=1
 #             if i.split('.')[0][-1]== path[-1] :
 #                 im = im.resize((64,64))
@@ -56,7 +56,7 @@ class pre_process:
 
 ##Div 2k
 train_directory = "/scratch/harsh_cnn/train"
-test_directory = "/home/harsh.shukla/SRCNN/test_Data/Urban100"
+test_directory = "/home/harsh.shukla/SRCNN/data/test"
 
 ##Real SR
 # train_directory = "/home/harsh.shukla/SRCNN/RealSR (ICCV2019)/Nikon/Train/2"
