@@ -129,12 +129,13 @@ def normalize(data):
 def process_and_train_load_data():
     train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/x')
     train_x=[i for i in train_xx]
-#     print(len(train_xx))
-#     for i in train_xx :
-#         train_x.append(gaussian_blur(i))
-#     print(len(train_x))
-    train_x=normalize(train_x)
+    print(len(train_xx))
+    for i in train_xx :
+        train_x.append(flip(i))
+    print(len(train_x))
+#     train_x=normalize(train_x)
     train_input=np.asarray(train_x)
+    print(train_input.shape)
     train_input=np.moveaxis(train_input,1,-1)
     train_input=np.moveaxis(train_input,1,-1)
     train_input = train_input.astype(np.float32)
@@ -142,10 +143,10 @@ def process_and_train_load_data():
     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/y')
 #     print(len(train_yy))
     train_y=[i for i in train_yy]
-#     for i in train_yy :
-#         train_y.append(gaussian_blur(i))
-#     print(len(train_y))
-    train_y=normalize(train_y)
+    for i in train_yy :
+        train_y.append(flip(i))
+    print(len(train_y))
+#     train_y=normalize(train_y)
     train_target=np.asarray(train_y)
     train_target=np.moveaxis(train_target,1,-1)
     train_target=np.moveaxis(train_target,1,-1)

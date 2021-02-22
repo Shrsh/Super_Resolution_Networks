@@ -437,13 +437,11 @@ class SRFBN(nn.Module):
 		
 		# comment for pytorch 0.4.0
         inter_res = nn.functional.interpolate(x, scale_factor=self.upscale_factor, mode='bilinear', align_corners=False)
-        x = self.conv_in(x)
-        x = self.feat_in(x)
+        
 
         outs = []
         for _ in range(self.num_steps):
             h = self.block(x)
-
             h = torch.add(inter_res, self.conv_out(self.out(h)))
             h = self.add_mean(h)
             outs.append(h)

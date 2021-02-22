@@ -1,0 +1,7 @@
+#!/bin/bash
+python train.py -m debug 
+python train.py -m debug 
+python train.py -m debug 
+python train.py -m debug 
+python train.py -m debug 
+python train.py -m debug 

@@ -66,7 +66,7 @@ std_test = [47.4708, 47.9140, 49.1483]
 ####Network 
 ####
 class Generator(nn.Module):
-    def __init__(self, num_rrdb_blocks=4):
+    def __init__(self, num_rrdb_blocks=8):
         r""" This is an esrgan model defined by the author himself.
 
         We use two settings for our generator – one of them contains 8 residual blocks, with a capacity similar
@@ -283,8 +283,8 @@ def weight_init(m):
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv2d):
-        init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-#         init.xavier_normal_(m.weight.data)
+#         init.kaiming_uniform_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        init.xavier_normal_(m.weight.data)
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv3d):
@@ -505,8 +505,8 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=128 , shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=128  , shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64 , shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64  , shuffle=True)
     
     return trainloader, testloader
 
@@ -616,8 +616,8 @@ def initialize_train_network(trainloader, testloader, debug):
         list_no=0
         for input_,target in trainloader:
             if torch.cuda.is_available():
-#                 input_ = train_norm(input_)
-#                 target= train_norm(target)
+                input_ = train_norm(input_)
+                target= train_norm(target)
                 target=target.to(device)
                 input_ = input_.to(device)        
             output = model(input_)
@@ -631,8 +631,8 @@ def initialize_train_network(trainloader, testloader, debug):
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader:
-#                 local_batch = test_norm(local_batch)
-#                 local_labels = test_norm(local_labels)
+                local_batch = test_norm(local_batch)
+                local_labels = test_norm(local_labels)
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
@@ -647,8 +647,8 @@ def initialize_train_network(trainloader, testloader, debug):
                 }, checkpoint_file)
         
         if(debug == True):
-#             label = test_unorm(local_labels[0])
-#             output = test_unorm(output[0])
+            label = test_unorm(local_labels[0])
+            output = test_unorm(output[0])
             label=im.fromarray(np.uint8(np.moveaxis((local_labels[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
             output=im.fromarray(np.uint8(np.moveaxis((output[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
             
@@ -657,7 +657,7 @@ def initialize_train_network(trainloader, testloader, debug):
   
         train.append(sum(training_loss)/len(training_loss))
         test.append(sum(test_loss)/len(test_loss))
-        psnr.append(10*math.log10(1/(sum(test_loss)/len(test_loss))))
+        psnr.append(10*math.log10(4/(sum(test_loss)/len(test_loss))))
         with open(os.path.join(results,"Train_loss.txt"), 'wb') as f:
                 pickle.dump(train ,f)
         with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
@@ -668,7 +668,7 @@ def initialize_train_network(trainloader, testloader, debug):
         print("Epoch :",epoch)
         print("Training loss :",sum(training_loss)/len(training_loss))
         print("Test loss :",sum(test_loss)/len(test_loss))
-        print("PSNR :", 10*math.log10(1/(sum(test_loss)/len(test_loss))))
+        print("PSNR :", 10*math.log10(4/(sum(test_loss)/len(test_loss))))
 
         print("-----------------------------------------------------------------------------------------------------------")
     try:

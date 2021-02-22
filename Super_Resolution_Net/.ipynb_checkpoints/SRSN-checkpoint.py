@@ -150,9 +150,9 @@ def weight_init(m):
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv2d):
-#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        init.xavier_normal_(m.weight.data)
-#         init.xavier_uniform_(m.weight.data, gain=1.0)
+#         init.kaiming_uniform_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal_(m.weight.data)
+        init.xavier_uniform_(m.weight.data, gain=1.0)
 #         torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
@@ -239,10 +239,10 @@ class SRSN_Generator(nn.Module):
     def __init__(self, input_dim=3, dim=64, scale_factor=4):
         super(SRSN_Generator, self).__init__()
 #         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
-        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 8, dilation=2)
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
         self.conv2 = torch.nn.Conv2d(128, 64, 1, 1, 0)
-        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
-        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
+        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
+        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
         self.resnet3 = Modified_Resnet_Block(dim, 5, 1, 2, bias=True)
         self.resnet4 = Modified_Resnet_Block(dim, 3, 1, 1, bias=True)
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
@@ -250,8 +250,8 @@ class SRSN_Generator(nn.Module):
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
     def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
-        LR_feat = self.conv2(LR_feat)
+        LR_feat = F.leaky_relu(self.conv1(LR))
+        LR_feat = (self.conv2(LR_feat))
         
         ##Creating Skip connection between dense blocks 
         out = self.resnet1(LR_feat) 
@@ -263,72 +263,20 @@ class SRSN_Generator(nn.Module):
         out2 = out + out2
         
         out3 = self.resnet4(out2)
-        out3 = out + out1 + out3 + LR_feat
+        out3 = out + out1 + out3 
         out3 = self.up(out3)
         #LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv3(out3),negative_slope=0.2)
+        SR=F.leaky_relu(self.conv3(out3))
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR
 
-
-class SRSN(nn.Module):
-    def __init__(self, input_dim=3, dim=128, scale_factor=4):
-        super(SRSN, self).__init__()
-        self.conv1 = torch.nn.Conv2d(3, 64, 9, 1, 8,dilation=2)
-        self.conv2 = torch.nn.Conv2d(64, 128, 7, 1, 6,dilation=2)
-#         self.resnet1 = ResnetBlock(dim, 9, 1, 8, bias=True, dilation=2)
-        self.resnet2 = ResnetBlock(dim, 7, 1, 6,dilation=2, bias=True)
-        self.resnet3 = ResnetBlock(dim, 5, 1, 4, bias=True,dilation=2)
-        self.resnet4 = ResnetBlock(dim, 3, 1, 1, bias=True,dilation=1)
-        
-#         self.bn1 = nn.BatchNorm2d(num_features=dim)
-#         self.bn2 = nn.BatchNorm2d(num_features=dim)
-#         self.bn3 = nn.BatchNorm2d(num_features=dim) 
-#         self.bn4 = nn.BatchNorm2d(num_features=dim)
-        
-        # for specifying output size in deconv filter 
-#       new_rows = ((rows - 1) * strides[0] + kernel_size[0] - 2 * padding[0] + output_padding[0])
-#       new_cols = ((cols - 1) * strides[1] + kernel_size[1] - 2 * padding[1] +output_padding[1])
-        self.conv3 = torch.nn.Conv2d(dim,64,3,1,1,bias=True)
-        self.up = torch.nn.ConvTranspose2d(64,64,4,stride=4)
-#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
-        self.conv4=torch.nn.Conv2d(64, 16, 1, 1, 0)
-        self.conv5=torch.nn.Conv2d(16, 3, 1, 1, 0)
-
-    def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR))
-        LR_feat = self.conv2(LR_feat)
-        
-        ##Creating Skip connection between dense blocks 
-#         out = self.resnet1(LR_feat)
-#         out = out + LR_feat  
-        out1= self.resnet2(LR_feat)
-#         out1 = out + LR_feat + out1
-        
-        out2 = self.resnet3(out1)
-#         out2 = out1 + out2 + LR_feat + out
-        
-        out3 = F.leaky_relu(self.resnet4(out2))
-#         out3=torch.cat((out3, LR_feat), 1)
-        out3=out3+LR_feat
-        out4 = F.leaky_relu(self.conv3(out3))
-#         out3 = out + out1 + out2 + out3 + LR_feat
-#         out4 = F.leaky_relu(self.conv3(out3))
-        
-        out4 = self.up(out4)
-#       LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv4(out4))
-        
-        SR =self.conv5(SR)
-#       print(SR.shape)
-        return SR
-
+    
 class ResnetBlock(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
         self.act1 = torch.nn.LeakyReLU(inplace=True)
         self.act2 = torch.nn.LeakyReLU(inplace=True)
@@ -342,27 +290,29 @@ class ResnetBlock(torch.nn.Module):
         out = self.act2(out)
         out = self.conv2(out)
 
+        out = out + x
+
         return out
     
 class Modified_Resnet_Block(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
         super(Modified_Resnet_Block, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
-        self.act1 = torch.nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        self.act2 = torch.nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        self.act3 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
-        
+        self.act1 = torch.nn.LeakyReLU(inplace=True)
+        self.act2 = torch.nn.LeakyReLU(inplace=True)
+        self.act3 = torch.nn.LeakyReLU(inplace=True)
+
 
     def forward(self, x):
         
         out = self.conv1(self.act1(x))
-#         out = out + x
+        out = out + x
         
         out1 = self.conv2(self.act2(out))
-#         out1 = x + out1 + out
+        out1 = x + out1 + out
         
         out2 = self.conv3(self.act3(out1))
         out2 = out2 + out1 + out + x
@@ -450,13 +400,12 @@ def rotate(x):
 def process_and_train_load_data():
     train_y = []
     train_x = []
-    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/y')
-    train_y=[i for i in train_yy]
-    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/x')
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/y')
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/x')
     train_x=[i for i in train_xx]
     
 #     for i in train_yy :
-#         x=gaussian_blur(i)
+#         x=brightness(i)
 #         small_array = cv2.resize(x, (64,64))
 #         train_y.append(x)
 #         train_x.append(small_array)
@@ -470,13 +419,13 @@ def process_and_train_load_data():
     train_input=np.moveaxis(train_input,1,-1)
     train_input = train_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -488,8 +437,8 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=25, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=25, shuffle=True)
     
     
     return trainloader, testloader
