@@ -152,6 +152,7 @@ def weight_init(m):
     elif isinstance(m, nn.Conv2d):
 #         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         init.xavier_normal_(m.weight.data)
+#         init.xavier_uniform_(m.weight.data, gain=1.0)
 #         torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
@@ -249,7 +250,7 @@ class SRSN_Generator(nn.Module):
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
     def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.02)
+        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
         LR_feat = self.conv2(LR_feat)
         
         ##Creating Skip connection between dense blocks 
@@ -265,7 +266,7 @@ class SRSN_Generator(nn.Module):
         out3 = out + out1 + out3 + LR_feat
         out3 = self.up(out3)
         #LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv3(out3),negative_slope=0.02)
+        SR=F.leaky_relu(self.conv3(out3),negative_slope=0.2)
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR
@@ -350,18 +351,18 @@ class Modified_Resnet_Block(torch.nn.Module):
         self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
         self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
 
-        self.act1 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
-        self.act2 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
+        self.act1 = torch.nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        self.act2 = torch.nn.LeakyReLU(negative_slope=0.2,inplace=True)
         self.act3 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
         
 
     def forward(self, x):
         
         out = self.conv1(self.act1(x))
-        out = out + x
+#         out = out + x
         
         out1 = self.conv2(self.act2(out))
-        out1 = x + out1 + out
+#         out1 = x + out1 + out
         
         out2 = self.conv3(self.act3(out1))
         out2 = out2 + out1 + out + x
