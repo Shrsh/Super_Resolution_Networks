@@ -46,7 +46,7 @@ print("Number of GPUs:" + str(torch.cuda.device_count()))
 use_cuda = torch.cuda.is_available()
 torch.no_grad()
 torch.cuda.empty_cache()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
@@ -55,193 +55,24 @@ trans = transforms.ToPILImage()
 trans1 = transforms.ToTensor()
 torch.autograd.set_detect_anomaly(True)
 
-### Network Debugging
-#########################################################################
+# Pre-Computed Data Statistics    
+mean_train = [ 97.2139, 111.3607, 123.2277]
+std_train = [45.4368, 46.1355, 48.7539]
+mean_test = [ 99.2980, 111.7384, 117.2509] 
+std_test = [47.4708, 47.9140, 49.1483]
 
-### Creating function for Gradient Visualisation 
-def plot_grad_flow(result_directory,named_parameters,model_name): 
-    
-    ave_grads = []
-    layers = []
-    for n, p in named_parameters:
-        if(p.requires_grad) and ("bias" not in n):
-            layers.append(n)
-            ave_grads.append(p.grad.abs().mean())
-    plt.figure(figsize=(12,12))
-    plt.plot(ave_grads, alpha=0.3, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
-    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
-    plt.xlim(xmin=0, xmax=len(ave_grads))
-    plt.xlabel("Layers")
-    plt.ylabel("average gradient")
-    plt.title("Gradient flow")
-    plt.grid(True)
-    plt.savefig(os.path.join(result_directory, model_name + "gradient_flow.png" ))
-    
-### Get all the children layers 
-def get_children(model: torch.nn.Module):
-    # get children form model!
-    children = list(model.children())
-    flatt_children = []
-    if children == []:
-        # if model has no children; model is last child! :O
-        return model
-    else:
-       # look for children from children... to the last child!
-       for child in children:
-            try:
-                flatt_children.extend(get_children(child))
-            except TypeError:
-                flatt_children.append(get_children(child))
-    return flatt_children
-    
+####
+#Network 
+####
 
-### Layer Activation in CNNs 
-
-    
-def visualise_layer_activation(model,local_batch,result_directory):
-    activation = {}
-    def get_activation(name):
-        def hook(model, input, output):
-            activation[name] = output.detach()
-        return hook
-    layer_name = 'conv1'
-    model.module.conv1.register_forward_hook(get_activation(layer_name))
-    output = model(local_batch)
-    act = activation[layer_name].squeeze()
-    print(act.shape)
-    #plot subplots for different images
-    for i in range(act[0].shape[0]):
-        output = im.fromarray(np.uint8(np.moveaxis(act[0][i].cpu().detach().numpy(), 0, -1))).convert('RGB')
-        output.save(os.path.join(result_directory,str(i)+'.png'))
-        #
-
-### Visualising Conv Filters
-def visualise_conv_filters(model,result_directory):
-    kernels = model.conv1.weight.detach()
-    print(kernels.shape)
-    # fig, axarr = plt.subplots(kernels.size(0))
-    # for i in range(kernels.shape[0]):
-    #     plt.savefig()
-    # for idx in range(kernels.size(0)):
-    #     axarr[idx].imsave(kernels[idx].squeeze(),result_directory + "1.png")
-    #
-    
-def count_parameters(model):
-    table = PrettyTable(["Modules", "Parameters"])
-    total_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
-        param = parameter.numel()
-        table.add_row([name, param])
-        total_params+=param
-    print(table)
-    print(f"Total Trainable Params: {total_params}")
-    return total_params
-
-def weight_init(m):
-    '''
-    Usage:
-        model = Model()
-        model.apply(weight_init)
-    '''
-    if isinstance(m, nn.Conv1d):
-        init.normal_(m.weight.data)
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.Conv2d):
-#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        init.xavier_normal_(m.weight.data)
-#         torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.Conv3d):
-#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-#         init.xavier_normal_(m.weight.data)
-        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.ConvTranspose1d):
-        init.normal_(m.weight.data)
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.ConvTranspose2d):
-#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-#         init.xavier_normal_(m.weight.data)
-        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.ConvTranspose3d):
-#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-#         init.xavier_normal_(m.weight.data)
-        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
-        if m.bias is not None:
-            init.normal_(m.bias.data)
-    elif isinstance(m, nn.BatchNorm1d):
-        init.normal_(m.weight.data, mean=1, std=0.02)
-        init.constant_(m.bias.data, 0)
-    elif isinstance(m, nn.BatchNorm2d):
-        init.normal_(m.weight.data, mean=1, std=0.02)
-        init.constant_(m.bias.data, 0)
-    elif isinstance(m, nn.BatchNorm3d):
-        init.normal_(m.weight.data, mean=1, std=0.02)
-        init.constant_(m.bias.data, 0)
-    elif isinstance(m, nn.Linear):
-        init.xavier_normal_(m.weight.data)
-        init.normal_(m.bias.data)
-    elif isinstance(m, nn.LSTM):
-        for param in m.parameters():
-            if len(param.shape) >= 2:
-                init.orthogonal_(param.data)
-            else:
-                init.normal_(param.data)
-    elif isinstance(m, nn.LSTMCell):
-        for param in m.parameters():
-            if len(param.shape) >= 2:
-                init.orthogonal_(param.data)
-            else:
-                init.normal_(param.data)
-    elif isinstance(m, nn.GRU):
-        for param in m.parameters():
-            if len(param.shape) >= 2:
-                init.orthogonal_(param.data)
-            else:
-                init.normal_(param.data)
-    elif isinstance(m, nn.GRUCell):
-        for param in m.parameters():
-            if len(param.shape) >= 2:
-                init.orthogonal_(param.data)
-            else:
-                init.normal_(param.data)
-        
-
-
-#########################################################################################################################################################################################################
-
-
-
-def load_images_from_folder(folder):
-    c=0
-    images = []
-    list_name=[]
-    for filename in os.listdir(folder):
-        list_name.append(os.path.join(folder,filename))
-    list_name.sort()
-    for filename in list_name:
-        img = cv2.imread(filename)
-        if img is not None:
-            images.append(img)
-    return images
-
-
-class SRSN_Generator(nn.Module):
+class SRSN(nn.Module):
     def __init__(self, input_dim=3, dim=64, scale_factor=4):
-        super(SRSN_Generator, self).__init__()
+        super(SRSN, self).__init__()
 #         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
-        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 8, dilation=2)
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
         self.conv2 = torch.nn.Conv2d(128, 64, 1, 1, 0)
-        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
-        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
+        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
+        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 3, bias=True)
         self.resnet3 = Modified_Resnet_Block(dim, 5, 1, 2, bias=True)
         self.resnet4 = Modified_Resnet_Block(dim, 3, 1, 1, bias=True)
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
@@ -249,8 +80,8 @@ class SRSN_Generator(nn.Module):
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
     def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.02)
-        LR_feat = self.conv2(LR_feat)
+        LR_feat = F.leaky_relu(self.conv1(LR))
+        LR_feat = (F.leaky_relu(self.conv2(LR_feat)))
         
         ##Creating Skip connection between dense blocks 
         out = self.resnet1(LR_feat) 
@@ -262,72 +93,19 @@ class SRSN_Generator(nn.Module):
         out2 = out + out2
         
         out3 = self.resnet4(out2)
-        out3 = out + out1 + out3 + LR_feat
+        out3 = out + out1 + out3 
         out3 = self.up(out3)
         #LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv3(out3),negative_slope=0.02)
+        SR=F.leaky_relu(self.conv3(out3))
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR
 
-
-class SRSN(nn.Module):
-    def __init__(self, input_dim=3, dim=128, scale_factor=4):
-        super(SRSN, self).__init__()
-        self.conv1 = torch.nn.Conv2d(3, 64, 9, 1, 8,dilation=2)
-        self.conv2 = torch.nn.Conv2d(64, 128, 7, 1, 6,dilation=2)
-#         self.resnet1 = ResnetBlock(dim, 9, 1, 8, bias=True, dilation=2)
-        self.resnet2 = ResnetBlock(dim, 7, 1, 6,dilation=2, bias=True)
-        self.resnet3 = ResnetBlock(dim, 5, 1, 4, bias=True,dilation=2)
-        self.resnet4 = ResnetBlock(dim, 3, 1, 1, bias=True,dilation=1)
-        
-#         self.bn1 = nn.BatchNorm2d(num_features=dim)
-#         self.bn2 = nn.BatchNorm2d(num_features=dim)
-#         self.bn3 = nn.BatchNorm2d(num_features=dim) 
-#         self.bn4 = nn.BatchNorm2d(num_features=dim)
-        
-        # for specifying output size in deconv filter 
-#       new_rows = ((rows - 1) * strides[0] + kernel_size[0] - 2 * padding[0] + output_padding[0])
-#       new_cols = ((cols - 1) * strides[1] + kernel_size[1] - 2 * padding[1] +output_padding[1])
-        self.conv3 = torch.nn.Conv2d(dim,64,3,1,1,bias=True)
-        self.up = torch.nn.ConvTranspose2d(64,64,4,stride=4)
-#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
-        self.conv4=torch.nn.Conv2d(64, 16, 1, 1, 0)
-        self.conv5=torch.nn.Conv2d(16, 3, 1, 1, 0)
-
-    def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR))
-        LR_feat = self.conv2(LR_feat)
-        
-        ##Creating Skip connection between dense blocks 
-#         out = self.resnet1(LR_feat)
-#         out = out + LR_feat  
-        out1= self.resnet2(LR_feat)
-#         out1 = out + LR_feat + out1
-        
-        out2 = self.resnet3(out1)
-#         out2 = out1 + out2 + LR_feat + out
-        
-        out3 = F.leaky_relu(self.resnet4(out2))
-#         out3=torch.cat((out3, LR_feat), 1)
-        out3=out3+LR_feat
-        out4 = F.leaky_relu(self.conv3(out3))
-#         out3 = out + out1 + out2 + out3 + LR_feat
-#         out4 = F.leaky_relu(self.conv3(out3))
-        
-        out4 = self.up(out4)
-#       LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv4(out4))
-        
-        SR =self.conv5(SR)
-#       print(SR.shape)
-        return SR
-
 class ResnetBlock(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
         self.act1 = torch.nn.LeakyReLU(inplace=True)
         self.act2 = torch.nn.LeakyReLU(inplace=True)
@@ -341,19 +119,21 @@ class ResnetBlock(torch.nn.Module):
         out = self.act2(out)
         out = self.conv2(out)
 
+        out = out + x
+
         return out
     
 class Modified_Resnet_Block(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
         super(Modified_Resnet_Block, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
-        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
 
-        self.act1 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
-        self.act2 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
-        self.act3 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
-        
+        self.act1 = torch.nn.LeakyReLU(inplace=True)
+        self.act2 = torch.nn.LeakyReLU(inplace=True)
+        self.act3 = torch.nn.LeakyReLU(inplace=True)
+
 
     def forward(self, x):
         
@@ -368,7 +148,10 @@ class Modified_Resnet_Block(torch.nn.Module):
 
         return out2
     
-## Data Augmentation ########################################################
+
+###############################
+##Data Loaders and Augmentation 
+###############################
 
 def centre_crop(x): 
     left = int(im.size[0]/2-256/2)
@@ -444,6 +227,18 @@ def rotate(x):
   return np.rot90(x, k=1, axes=(0, 1))
 
 #############################################################################################
+def load_images_from_folder(folder):
+    c=0
+    images = []
+    list_name=[]
+    for filename in os.listdir(folder):
+        list_name.append(os.path.join(folder,filename))
+    list_name.sort()
+    for filename in list_name:
+        img = cv2.imread(filename)
+        if img is not None:
+            images.append(img)
+    return images
 
 
 def process_and_train_load_data():
@@ -480,6 +275,7 @@ def process_and_train_load_data():
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
+    
     data_train=[]
     data_test=[]
     for input, target in zip(train_input, train_target):
@@ -487,25 +283,218 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64, shuffle=True)
-    
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=128 , shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=128  , shuffle=True)
     
     return trainloader, testloader
 
+###################################################
+### Normalise and Unnormalise 
+###################################################
+
+
+## Normalise a Batch-Tensor
+class Normalize:
+    """Applies the :class:`~torchvision.transforms.Normalize` transform to a batch of images.
+    .. note::
+        This transform acts out of place by default, i.e., it does not mutate the input tensor.
+    Args:
+        mean (sequence): Sequence of means for each channel.
+        std (sequence): Sequence of standard deviations for each channel.
+        inplace(bool,optional): Bool to make this operation in-place.
+        dtype (torch.dtype,optional): The data type of tensors to which the transform will be applied.
+        device (torch.device,optional): The device of tensors to which the transform will be applied.
+    """
+
+    def __init__(self, mean, std, inplace=False, dtype=torch.float, device='cpu'):
+        self.mean = torch.as_tensor(mean, dtype=dtype, device=device)[None, :, None, None]
+        self.std = torch.as_tensor(std, dtype=dtype, device=device)[None, :, None, None]
+        self.inplace = inplace
+        
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor of size (N, C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized Tensor.
+        """
+        if not self.inplace:
+            tensor = tensor.clone()
+
+        tensor.sub_(self.mean).div_(self.std)
+        return tensor
+
+    
 def calculate_mean_std_dataset(loader):
     mean = 0.
     std = 0.
     nb_samples = 0.
-    for data in loader:
-        batch_samples = data.size(0)
-        data = data.view(batch_samples, data.size(1), -1)
-        mean += data.mean(2).sum(0)
-        std += data.std(2).sum(0)
-        nb_samples += batch_samples
+    for images,_ in loader:
+        batch_samples = images.size(0) # batch size (the last batch can have smaller size!)
+        images = images.view(batch_samples, images.size(1), -1)
+        mean += images.mean(2).sum(0)
+        std += images.std(2).sum(0)
 
-    mean /= nb_samples
-    std /= nb_samples
+    mean /= len(loader.dataset)
+    std /= len(loader.dataset)
+    return mean, std
+
+class UnNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.mul_(s).add_(m)
+            # The normalize code -> t.sub_(m).div_(s)
+        return tensor
+    
+    
+###########################################################
+###Network Debugging and Initialistion 
+############################################################
+### Creating function for Gradient Visualisation 
+def plot_grad_flow(result_directory,named_parameters,model_name): 
+    
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+    plt.figure(figsize=(12,12))
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(xmin=0, xmax=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.savefig(os.path.join(result_directory, model_name + "gradient_flow.png" ))
+    
+
+### Layer Activation in CNNs 
+
+    
+def visualise_layer_activation(model,local_batch,result_directory):
+    activation = {}
+    def get_activation(name):
+        def hook(model, input, output):
+            activation[name] = output.detach()
+        return hook
+    layer_name = 'conv1'
+    model.module.conv1.register_forward_hook(get_activation(layer_name))
+    output = model(local_batch)
+    act = activation[layer_name].squeeze()
+    print(act.shape)
+    #plot subplots for different images
+    for i in range(act[0].shape[0]):
+        output = im.fromarray(np.uint8(np.moveaxis(act[0][i].cpu().detach().numpy(), 0, -1))).convert('RGB')
+        output.save(os.path.join(result_directory,str(i)+'.png'))
+        #
+
+### Visualising Conv Filters
+def visualise_conv_filters(model,result_directory):
+    kernels = model.conv1.weight.detach()
+    print(kernels.shape)
+    # fig, axarr = plt.subplots(kernels.size(0))
+    # for i in range(kernels.shape[0]):
+    #     plt.savefig()
+    # for idx in range(kernels.size(0)):
+    #     axarr[idx].imsave(kernels[idx].squeeze(),result_directory + "1.png")
+    #
+    
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        table.add_row([name, param])
+        total_params+=param
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params
+
+def weight_init(m):
+    '''
+    Usage:
+        model = Model()
+        model.apply(weight_init)
+    '''
+    if isinstance(m, nn.Conv1d):
+        init.normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.Conv2d):
+        init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.Conv3d):
+        init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose1d):
+        init.normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose2d):
+        init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')        
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose3d):
+        init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.BatchNorm1d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.BatchNorm2d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.BatchNorm3d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.Linear):
+        init.xavier_normal_(m.weight.data)
+        init.normal_(m.bias.data)
+    elif isinstance(m, nn.LSTM):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.LSTMCell):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.GRU):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.GRUCell):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+
+#####################################################
+#### Training 
+#####################################################
 
 def initialize_train_network(trainloader, testloader, debug): 
     
@@ -525,7 +514,7 @@ def initialize_train_network(trainloader, testloader, debug):
     if not os.path.exists(net_debug):
         os.makedirs(net_debug)
 
-    model = SRSN_Generator()
+    model = SRSN()
     model = nn.DataParallel(model)
     model.to(device)
     print(next(model.parameters()).device)
@@ -533,7 +522,7 @@ def initialize_train_network(trainloader, testloader, debug):
     
     
     
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=0.00001, betas=(0.9, 0.999), eps=1e-8)
 #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
     my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
 #     criterion = nn.MSELoss().to(device)
@@ -633,7 +622,7 @@ def initialize_train_network(trainloader, testloader, debug):
     print("Training Completed")
 
 
-
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m','--debug', help="Mode of Execution here")
@@ -645,6 +634,6 @@ if __name__ == '__main__':
     if args.debug == "debug": 
         print("Running in Debug Mode.....")
         grad_flow_flag = True
-
+        
     trainloader, testloader = process_and_train_load_data()
     initialize_train_network(trainloader, testloader,grad_flow_flag)

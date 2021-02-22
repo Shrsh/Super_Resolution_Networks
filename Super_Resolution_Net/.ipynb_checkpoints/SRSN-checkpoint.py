@@ -34,6 +34,8 @@ from IPython.display import clear_output
 from prettytable import PrettyTable
 import math
 import torch.nn.init as init
+from scipy.ndimage.filters import gaussian_filter
+
 
 
 
@@ -51,6 +53,7 @@ torch.backends.cudnn.benchmark = True
 
 trans = transforms.ToPILImage()
 trans1 = transforms.ToTensor()
+torch.autograd.set_detect_anomaly(True)
 
 ### Network Debugging
 #########################################################################
@@ -147,11 +150,15 @@ def weight_init(m):
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv2d):
+#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         init.xavier_normal_(m.weight.data)
+#         torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv3d):
-        init.xavier_normal_(m.weight.data)
+#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal_(m.weight.data)
+        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.ConvTranspose1d):
@@ -159,11 +166,15 @@ def weight_init(m):
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.ConvTranspose2d):
-        init.xavier_normal_(m.weight.data)
+#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal_(m.weight.data)
+        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.ConvTranspose3d):
-        init.xavier_normal_(m.weight.data)
+#         init.kaiming_uniform_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal_(m.weight.data)
+        torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.BatchNorm1d):
@@ -223,53 +234,100 @@ def load_images_from_folder(folder):
     return images
 
 
-class SRSN(nn.Module):
+class SRSN_Generator(nn.Module):
     def __init__(self, input_dim=3, dim=64, scale_factor=4):
-        super(SRSN, self).__init__()
-        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
+        super(SRSN_Generator, self).__init__()
+#         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 8, dilation=2)
         self.conv2 = torch.nn.Conv2d(128, 64, 1, 1, 0)
-        self.resnet1 = ResnetBlock(dim, 9, 1, 4, bias=True)
-        self.resnet2 = ResnetBlock(dim, 7, 1, 3, bias=True)
-        self.resnet3 = ResnetBlock(dim, 5, 1, 2, bias=True)
-        self.resnet4 = ResnetBlock(dim, 3, 1, 1, bias=True)
-        
-        # for specifying output size in deconv filter 
-#       new_rows = ((rows - 1) * strides[0] + kernel_size[0] - 2 * padding[0] + output_padding[0])
-#       new_cols = ((cols - 1) * strides[1] + kernel_size[1] - 2 * padding[1] +output_padding[1])
-        self.up = torch.nn.ConvTranspose2d(64,64,4,stride=4)
-#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.resnet1 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
+        self.resnet2 = Modified_Resnet_Block(dim, 7, 1, 6, bias=True,dilation=2)
+        self.resnet3 = Modified_Resnet_Block(dim, 5, 1, 2, bias=True)
+        self.resnet4 = Modified_Resnet_Block(dim, 3, 1, 1, bias=True)
+        self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.conv3=torch.nn.Conv2d(64, 16, 1, 1, 0)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
 
     def forward(self, LR):
-        LR_feat = F.leaky_relu(self.conv1(LR))
-        LR_feat = (F.leaky_relu(self.conv2(LR_feat)))
+        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.02)
+        LR_feat = self.conv2(LR_feat)
         
         ##Creating Skip connection between dense blocks 
-        out = self.resnet1(LR_feat)
+        out = self.resnet1(LR_feat) 
         out = out + LR_feat
-        
         out1= self.resnet2(out)
-        out1 = out + LR_feat + out1
+        out1= out + out1
         
         out2 = self.resnet3(out1)
-        out2 =out1 + out2 + LR_feat + out
+        out2 = out + out2
         
         out3 = self.resnet4(out2)
-        out3 = out + out1 + out2 + out3 + LR_feat
+        out3 = out + out1 + out3 + LR_feat
         out3 = self.up(out3)
-
-#       LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv3(out3))
+        #LR_feat = self.resnet(out3)
+        SR=F.leaky_relu(self.conv3(out3),negative_slope=0.02)
         SR =self.conv4(SR)
+        # print(SR.shape)
+        return SR
+
+
+class SRSN(nn.Module):
+    def __init__(self, input_dim=3, dim=128, scale_factor=4):
+        super(SRSN, self).__init__()
+        self.conv1 = torch.nn.Conv2d(3, 64, 9, 1, 8,dilation=2)
+        self.conv2 = torch.nn.Conv2d(64, 128, 7, 1, 6,dilation=2)
+#         self.resnet1 = ResnetBlock(dim, 9, 1, 8, bias=True, dilation=2)
+        self.resnet2 = ResnetBlock(dim, 7, 1, 6,dilation=2, bias=True)
+        self.resnet3 = ResnetBlock(dim, 5, 1, 4, bias=True,dilation=2)
+        self.resnet4 = ResnetBlock(dim, 3, 1, 1, bias=True,dilation=1)
+        
+#         self.bn1 = nn.BatchNorm2d(num_features=dim)
+#         self.bn2 = nn.BatchNorm2d(num_features=dim)
+#         self.bn3 = nn.BatchNorm2d(num_features=dim) 
+#         self.bn4 = nn.BatchNorm2d(num_features=dim)
+        
+        # for specifying output size in deconv filter 
+#       new_rows = ((rows - 1) * strides[0] + kernel_size[0] - 2 * padding[0] + output_padding[0])
+#       new_cols = ((cols - 1) * strides[1] + kernel_size[1] - 2 * padding[1] +output_padding[1])
+        self.conv3 = torch.nn.Conv2d(dim,64,3,1,1,bias=True)
+        self.up = torch.nn.ConvTranspose2d(64,64,4,stride=4)
+#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.conv4=torch.nn.Conv2d(64, 16, 1, 1, 0)
+        self.conv5=torch.nn.Conv2d(16, 3, 1, 1, 0)
+
+    def forward(self, LR):
+        LR_feat = F.leaky_relu(self.conv1(LR))
+        LR_feat = self.conv2(LR_feat)
+        
+        ##Creating Skip connection between dense blocks 
+#         out = self.resnet1(LR_feat)
+#         out = out + LR_feat  
+        out1= self.resnet2(LR_feat)
+#         out1 = out + LR_feat + out1
+        
+        out2 = self.resnet3(out1)
+#         out2 = out1 + out2 + LR_feat + out
+        
+        out3 = F.leaky_relu(self.resnet4(out2))
+#         out3=torch.cat((out3, LR_feat), 1)
+        out3=out3+LR_feat
+        out4 = F.leaky_relu(self.conv3(out3))
+#         out3 = out + out1 + out2 + out3 + LR_feat
+#         out4 = F.leaky_relu(self.conv3(out3))
+        
+        out4 = self.up(out4)
+#       LR_feat = self.resnet(out3)
+        SR=F.leaky_relu(self.conv4(out4))
+        
+        SR =self.conv5(SR)
 #       print(SR.shape)
         return SR
 
 class ResnetBlock(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
 
         self.act1 = torch.nn.LeakyReLU(inplace=True)
         self.act2 = torch.nn.LeakyReLU(inplace=True)
@@ -286,15 +344,15 @@ class ResnetBlock(torch.nn.Module):
         return out
     
 class Modified_Resnet_Block(torch.nn.Module):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True,dilation=1):
         super(Modified_Resnet_Block, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
-        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
+        self.conv3 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias,dilation=dilation)
 
-        self.act1 = torch.nn.LeakyReLU(inplace=True)
-        self.act2 = torch.nn.LeakyReLU(inplace=True)
-        self.act3 = torch.nn.LeakyReLU(inplace=True)
+        self.act1 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
+        self.act2 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
+        self.act3 = torch.nn.LeakyReLU(negative_slope=0.02,inplace=True)
         
 
     def forward(self, x):
@@ -309,20 +367,107 @@ class Modified_Resnet_Block(torch.nn.Module):
         out2 = out2 + out1 + out + x
 
         return out2
+    
+## Data Augmentation ########################################################
+
+def centre_crop(x): 
+    left = int(im.size[0]/2-256/2)
+    upper = int(im.size[1]/2-256/2)
+    right = left + 256
+    lower = upper + 256
+    x.crop((left, upper,right,lower))
+    
+
+def noise(x): 
+  c, h, w = x.shape
+  x += np.random.randn(c, h, w) * 0.15
+  return x
+
+def shift_horizontal_vertical(x):
+  x = np.roll(x, 1, axis=0) # shift 1 place in horizontal axis
+  x = np.roll(x, 1, axis=1) # shift 1 place in vertical axis
+  return x
+
+def shift_horizontal(x):
+  x = np.roll(x, 1, axis=0) # shift 1 place in horizontal axis
+  return x
+
+def shift_vertical(x):
+  x = np.roll(x, 1, axis=1) # shift 1 place in vertical axis
+  return x
+
+def gaussian_blur(x):
+  return gaussian_filter(x, sigma=2)
+
+def flip_channel(x):
+  beta = np.random.beta(0.5, 0.5)
+  if beta>1-beta:
+    mix=beta
+  else:
+    mix=1-beta
+  xmix = x * mix + x[::-1] * (1 - mix)
+  return xmix
+
+def flip (y):
+  z=[0.8*y[0,:,:][: :-1],0.7*y[1,:,:][: :-1],0.9*y[2,:,:][: :-1]]
+  return np.asarray(z)
+
+def random_crop(x):
+  z = x[:,random.randint(0,12):random.randint(20,32),random.randint(0,12):random.randint(18,30)]
+  z1 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
+  z2 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
+  z3 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
+  z=[z1,z2,z3]
+  return np.asarray(z)
+
+def zooming(x):
+  z = x[:,8:24,8:24]
+  z=np.kron(z, np.ones((1,2,2)))
+  return z
+
+
+def brightness(a):
+  a = a.astype(int)
+  min=np.min(a)        # result=144
+  max=np.max(a)        # result=216
+  LUT=np.zeros(256,dtype=np.uint8)
+  LUT[min:max+1]=np.linspace(start=0,stop=255,num=(max-min)+1,endpoint=True,dtype=np.uint8)
+  return LUT[a]
+ 
+
+def rotate(x):
+  # c, h, w = x.shape
+  # x += np.random.randn(c, h, w) * 0.15
+  # x = Image.fromarray(x)
+  # x= x.rotate(125)
+  x=np.rot90(x, k=1, axes=(0, 1))
+  return np.rot90(x, k=1, axes=(0, 1))
+
+#############################################################################################
 
 
 def process_and_train_load_data():
-    train= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/x')
-    train_input=np.asarray(train)
-    train_input=np.moveaxis(train_input,1,-1)
-    train_input=np.moveaxis(train_input,1,-1)
-    train_input = train_input.astype(np.float32)
-
-    train= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/y')
-    train_target=np.asarray(train)
+    train_y = []
+    train_x = []
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/y')
+    train_y=[i for i in train_yy]
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/x')
+    train_x=[i for i in train_xx]
+    
+#     for i in train_yy :
+#         x=gaussian_blur(i)
+#         small_array = cv2.resize(x, (64,64))
+#         train_y.append(x)
+#         train_x.append(small_array)
+    train_target=np.asarray(train_y)
     train_target=np.moveaxis(train_target,1,-1)
     train_target=np.moveaxis(train_target,1,-1)
     train_target = train_target.astype(np.float32)
+    
+    train_input=np.asarray(train_x)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input = train_input.astype(np.float32)
 
     test= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/test/x')
     test_input=np.asarray(test)
@@ -342,13 +487,25 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=128, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=128, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=64, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=64, shuffle=True)
+    
+    
     return trainloader, testloader
 
+def calculate_mean_std_dataset(loader):
+    mean = 0.
+    std = 0.
+    nb_samples = 0.
+    for data in loader:
+        batch_samples = data.size(0)
+        data = data.view(batch_samples, data.size(1), -1)
+        mean += data.mean(2).sum(0)
+        std += data.std(2).sum(0)
+        nb_samples += batch_samples
 
-
-
+    mean /= nb_samples
+    std /= nb_samples
 
 def initialize_train_network(trainloader, testloader, debug): 
     
@@ -368,16 +525,20 @@ def initialize_train_network(trainloader, testloader, debug):
     if not os.path.exists(net_debug):
         os.makedirs(net_debug)
 
-    model = SRSN()
+    model = SRSN_Generator()
     model = nn.DataParallel(model)
     model.to(device)
     print(next(model.parameters()).device)
     model.apply(weight_init) ## Weight initialisation 
     
-    optimizer = optim.Adam(model.parameters(), lr=0.0008, betas=(0.9, 0.999), eps=1e-8)
+    
+    
+    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
 #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
-#     my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.1)
-    criterion = nn.MSELoss().to(device)
+    my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
+#     criterion = nn.MSELoss().to(device)
+    test_criterion = nn.MSELoss().to(device)
+    criterion=nn.L1Loss().to(device)
     
     # load model if exists
     if os.path.exists(checkpoint_file):
@@ -405,7 +566,7 @@ def initialize_train_network(trainloader, testloader, debug):
         dbfile = open(os.path.join(results,"PSNR.txt"), 'rb')      
         psnr = pickle.load(dbfile)
     loss1=0
-    for epoch in range(500):
+    for epoch in range(48):
         training_loss=[]
         test_loss=[]
         list_no=0
@@ -420,26 +581,26 @@ def initialize_train_network(trainloader, testloader, debug):
             if debug == True: 
                 plot_grad_flow(net_debug,model.named_parameters(),"super_resolution_network")
             optimizer.zero_grad()
-            training_loss.append(loss.item()*output.shape[0])
+            training_loss.append(loss.item())
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
-                test_loss.append(criterion(output, local_labels).item())
-                if debug == True: 
-                    visualise_layer_activation(model,local_batch,net_debug)
+                test_loss.append(test_criterion(output, local_labels).item())
+#                 if debug == True: 
+#                     visualise_layer_activation(model,local_batch,net_debug)
 
-        
+        my_lr_scheduler.step(test_loss[-1])
         torch.save({
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 }, checkpoint_file)
-#         my_lr_scheduler.step()
+        
         if(debug == True):
-            label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-            output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            label=im.fromarray(np.uint8(np.moveaxis((local_labels[0]).cpu().detach().numpy(),0,-1))).convert('RGB')
+            output=im.fromarray(np.uint8(np.moveaxis((output[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
   
