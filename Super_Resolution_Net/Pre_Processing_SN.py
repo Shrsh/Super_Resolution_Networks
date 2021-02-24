@@ -16,24 +16,26 @@ class pre_process:
         self.count = 0
         if string == "train": 
             path = self.train_path 
-            processed_input = "/scratch/harsh_cnn/SR_data/train/input"
-            processed_target = "/scratch/harsh_cnn/SR_data/train/target"
-#             processed_dir = "/home/harsh.shukla/SRCNN/SR_data/train/target"
+            processed_input = "/home/harsh.shukla/SRCNN/Flickr/train/input"
+            processed_target = "/home/harsh.shukla/SRCNN/Flickr/train/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/Flickr"
         else:
             path = self.test_path
-            processed_input = "/scratch/harsh_cnn/SR_data/test/input"
-            processed_target = "/scratch/harsh_cnn/SR_data/test/target"
+            processed_input = "/home/harsh.shukla/SRCNN/Div2K_data/test/input"
+            processed_target = "/home/harsh.shukla/SRCNN/Div2K_data/test/target"
 #             processed_dir = "/home/harsh.shukla/SRCNN/SR_data/test/target"
         
         os.chdir(path)
         walker = list(os.walk(path))
         filenames = walker[0][2]
         
-#         os.mkdir(processed_dir)
+        os.mkdir(processed_dir)
+        os.mkdir(os.path.join(processed_dir,"train"))
+        os.mkdir(processed_input)
+        os.mkdir(processed_target)
 #         print(filenames)
         for i in filenames:
             print(i)
-            #center crop the images, 128*800
             im = Image.open(i)
             left = int(im.size[0]/2-512/2)
             upper = int(im.size[1]/2-512/2)
@@ -64,4 +66,4 @@ test_directory = "/scratch/harsh_cnn/test"
 
 ob = pre_process(test_directory,train_directory)
 ob.process("train")
-ob.process("test")
+# ob.process("test")

@@ -152,8 +152,8 @@ def weight_init(m):
     elif isinstance(m, nn.Conv2d):
 #         init.kaiming_uniform_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
 #         init.xavier_normal_(m.weight.data)
-        init.xavier_uniform_(m.weight.data, gain=1.0)
-#         torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_uniform_(m.weight.data, gain=1.0)
+        torch.nn.init.kaiming_normal_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv3d):
@@ -270,7 +270,90 @@ class SRSN_Generator(nn.Module):
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR
+    
+class SRSN_RRDB(nn.Module):
+    def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2):
+        super(SRSN_RRDB, self).__init__()
+#         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
+        self.conv2 = torch.nn.Conv2d(128, 64, 3, 1, 1)
+        self.RDB1 = ResidualDenseBlock(64, 32, 0.2)
+        self.RDB2 = ResidualDenseBlock(64, 32, 0.2)
+        self.RDB3 = ResidualDenseBlock(64, 32, 0.2)
+        self.RDB4 = ResidualDenseBlock(64, 32, 0.2)
+        self.RDB5 = ResidualDenseBlock(64, 32, 0.2)
+        self.RDB6 = ResidualDenseBlock(64, 32, 0.2)
+        
+        self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.conv3=torch.nn.Conv2d(64, 16, 1, 1, 0)
+        self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
+        self.conv5=torch.nn.Conv2d(64*6, 64, 1, 1, 0)
+        
+        self.scale_ratio = 1
 
+    def forward(self, LR):
+        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
+        LR_feat = (self.conv2(LR_feat))
+        
+        ##Creating Skip connection between dense blocks 
+        out = self.RDB1(LR_feat) 
+#         out = out + LR_feat
+        out1= self.RDB2(out)
+#         out1= out + out1
+        
+        out2 = self.RDB3(out1)
+#         out2 = out + out2
+        
+        out3 = self.RDB4(out2)
+#         out3 = out + out1 + out3
+        out4 = self.RDB5(out3)
+        out5 = self.RDB6(out4)
+#         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
+#         out6=self.conv5(out6)
+        out6= out5.mul(self.scale_ratio) + LR_feat
+        out6 = self.up(out6)
+        #LR_feat = self.resnet(out3)
+        SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
+        SR =self.conv4(SR)
+        # print(SR.shape)
+        return SR   
+    
+class SRSN(nn.Module):
+    def __init__(self, input_dim=3, dim=128, scale_factor=4):
+        super(SRSN, self).__init__()
+#         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
+        self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4,)
+        self.conv2 = torch.nn.Conv2d(128, 128, 1, 1, 0)
+        self.resnet1 = ResnetBlock(dim, 7, 1, 3, bias=True)
+        self.resnet2 = ResnetBlock(dim, 7, 1, 3, bias=True)
+        self.resnet3 = ResnetBlock(dim, 5, 1, 2, bias=True)
+        self.resnet4 = ResnetBlock(dim, 3, 1, 1, bias=True)
+        self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.conv3=torch.nn.Conv2d(128, 16, 1, 1, 0)
+        self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
+
+    def forward(self, LR):
+        LR_feat = F.leaky_relu(self.conv1(LR))
+        LR_feat = (self.conv2(LR_feat))
+        
+        ##Creating Skip connection between dense blocks 
+        out = self.resnet1(LR_feat) 
+#         out = out + LR_feat
+        out1= self.resnet2(out)
+#         out1= out + out1
+        
+        out2 = self.resnet3(out1)
+#         out2 = out + out2
+        
+        out3 = self.resnet4(out2)
+#         out3 = out + out1 + out3 
+        out3= out3 + LR_feat
+        out3 = self.up(out3)
+        #LR_feat = self.resnet(out3)
+        SR=F.leaky_relu(self.conv3(out3))
+        SR =self.conv4(SR)
+        # print(SR.shape)
+        return SR
     
 class ResnetBlock(torch.nn.Module):
     def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
@@ -293,6 +376,64 @@ class ResnetBlock(torch.nn.Module):
         out = out + x
 
         return out
+    
+class ResidualDenseBlock(nn.Module):
+    r"""The residual block structure of traditional SRGAN and Dense model is defined"""
+
+    def __init__(self, channels: int = 64, growth_channels: int = 32, scale_ratio: float = 0.2):
+        """
+
+        Args:
+            channels (int): Number of channels in the input image. (Default: 64).
+            growth_channels (int): how many filters to add each layer (`k` in paper). (Default: 32).
+            scale_ratio (float): Residual channel scaling column. (Default: 0.2)
+        """
+        super(ResidualDenseBlock, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(channels + 0 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(channels + 1 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(channels + 2 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(channels + 3 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+        self.conv5 = nn.Conv2d(channels + 4 * growth_channels, channels, kernel_size=3, stride=1, padding=1)
+
+        self.scale_ratio = scale_ratio
+
+#         for m in self.modules():
+#             if isinstance(m, nn.Conv2d):
+#                 nn.init.kaiming_normal_(m.weight)
+#                 m.weight.data *= 0.1
+#                 if m.bias is not None:
+#                     m.bias.data.zero_()
+#             elif isinstance(m, nn.Linear):
+#                 nn.init.kaiming_normal_(m.weight)
+#                 m.weight.data *= 0.1
+#                 if m.bias is not None:
+#                     m.bias.data.zero_()
+#             elif isinstance(m, nn.BatchNorm2d):
+#                 nn.init.constant_(m.weight, 1)
+#                 nn.init.constant_(m.bias.data, 0.0)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        conv1 = self.conv1(input)
+        conv2 = self.conv2(torch.cat((input, conv1), 1))
+        conv3 = self.conv3(torch.cat((input, conv1, conv2), 1))
+        conv4 = self.conv4(torch.cat((input, conv1, conv2, conv3), 1))
+        conv5 = self.conv5(torch.cat((input, conv1, conv2, conv3, conv4), 1))
+
+        return conv5.mul(self.scale_ratio) + input
+    
+    
     
 class Modified_Resnet_Block(torch.nn.Module):
     def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True):
@@ -329,6 +470,15 @@ def centre_crop(x):
     x.crop((left, upper,right,lower))
     
 
+def rotate(x):
+  # c, h, w = x.shape
+  # x += np.random.randn(c, h, w) * 0.15
+  # x = Image.fromarray(x)
+  # x= x.rotate(125)
+  x=np.rot90(x, k=1, axes=(0, 1))
+  return np.rot90(x, k=1, axes=(0, 1))
+
+
 def noise(x): 
   c, h, w = x.shape
   x += np.random.randn(c, h, w) * 0.15
@@ -360,20 +510,29 @@ def flip_channel(x):
   return xmix
 
 def flip (y):
-  z=[0.8*y[0,:,:][: :-1],0.7*y[1,:,:][: :-1],0.9*y[2,:,:][: :-1]]
-  return np.asarray(z)
+  z=[0.8*y[:,:,0][: :-1],0.7*y[:,:,1][: :-1],0.9*y[:,:,2][: :-1]]
+  z=np.asarray(z)
+  z=np.moveaxis(z,0,-1)
+  return z
+
 
 def random_crop(x):
-  z = x[:,random.randint(0,12):random.randint(20,32),random.randint(0,12):random.randint(18,30)]
-  z1 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
-  z2 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
-  z3 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
+#   x=np.moveaxis(x,1,-1)
+#   x=np.moveaxis(x,1,-1)
+  z = x[random.randint(0,int(x.shape[0]/2)-10):random.randint(int(x.shape[0]/2)+10,x.shape[0]),random.randint(0,int(x.shape[0]/2)-10):random.randint(int(x.shape[0]/2)+10,x.shape[0]),:]
+  z1 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
+  z2 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
+  z3 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
   z=[z1,z2,z3]
-  return np.asarray(z)
+  z=np.asarray(z)
+  z=np.moveaxis(z,0,-1)
+  return z
 
 def zooming(x):
-  z = x[:,8:24,8:24]
-  z=np.kron(z, np.ones((1,2,2)))
+  z = x[int(x.shape[0]/4):x.shape[0]-int(x.shape[0]/4),int(x.shape[0]/4):x.shape[0]-int(x.shape[0]/4),:]
+  z=np.asarray(z)
+  print(z.shape)
+  z=np.kron(z, np.ones((2,2,1)))
   return z
 
 
@@ -386,13 +545,15 @@ def brightness(a):
   return LUT[a]
  
 
-def rotate(x):
-  # c, h, w = x.shape
-  # x += np.random.randn(c, h, w) * 0.15
-  # x = Image.fromarray(x)
-  # x= x.rotate(125)
-  x=np.rot90(x, k=1, axes=(0, 1))
-  return np.rot90(x, k=1, axes=(0, 1))
+
+
+
+def normalize(data):
+    size=data[0].shape[0]*data[0].shape[1]*data[0].shape[2]
+    for i in range (len(data)):
+        x=data[i].reshape(1,size).tolist()
+        data[i]=(data[i]-min(x[0]))/(max(x[0])-min(x[0]))
+    return data
 
 #############################################################################################
 
@@ -400,48 +561,85 @@ def rotate(x):
 def process_and_train_load_data():
     train_y = []
     train_x = []
-    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/y')
-    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/x')
-    train_x=[i for i in train_xx]
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/train/y')
     
+    train_y=[i for i in train_yy]
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/train/x')
+    train_x=[i for i in train_xx]
+#     print(len(train_x))
+#     c=0
 #     for i in train_yy :
-#         x=brightness(i)
-#         small_array = cv2.resize(x, (64,64))
+#         x=shift_horizontal(i)
+#         small_array = cv2.resize(x, (128,128))
 #         train_y.append(x)
 #         train_x.append(small_array)
+#         x=rotate(i)
+#         small_array = cv2.resize(x, (128,128))
+#         train_y.append(x)
+#         train_x.append(small_array)
+#         print(c)
+#         c=c+1
+#     print(len(train_y))
     train_target=np.asarray(train_y)
+#     print(train_target.shape)
     train_target=np.moveaxis(train_target,1,-1)
+#     print(train_target.shape)
     train_target=np.moveaxis(train_target,1,-1)
+#     print(train_target.shape)
     train_target = train_target.astype(np.float32)
+#     print(train_target.shape)
     
+#     print(len(train_x))
     train_input=np.asarray(train_x)
+#     print(train_input.shape)
     train_input=np.moveaxis(train_input,1,-1)
+#     print(train_input.shape)
     train_input=np.moveaxis(train_input,1,-1)
+#     print(train_input.shape)
     train_input = train_input.astype(np.float32)
+#     print(train_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
     data_train=[]
-    data_test=[]
+    data_test_flickr=[]
+    data_test_div=[]
     for input, target in zip(train_input, train_target):
         data_train.append([input, target])
     for input, target in zip(test_input, test_target):
-        data_test.append([input, target])
+        data_test_flickr.append([input, target])
+    
+    
+    
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Div2K_data/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=25, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=25, shuffle=True)
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Div2K_data/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
+    for input, target in zip(test_input, test_target):
+        data_test_div.append([input, target])
+    
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=48, shuffle=True)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=48, shuffle=True)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=48, shuffle=True)
     
     
-    return trainloader, testloader
+    return trainloader, testloader_flickr,testloader_div
 
 def calculate_mean_std_dataset(loader):
     mean = 0.
@@ -457,7 +655,9 @@ def calculate_mean_std_dataset(loader):
     mean /= nb_samples
     std /= nb_samples
 
-def initialize_train_network(trainloader, testloader, debug): 
+    
+    
+def initialize_train_network(trainloader, testloader_flickr,testloader_div, debug): 
     
     results = "/home/harsh.shukla/SRCNN/SRSN_results"
     
@@ -475,7 +675,7 @@ def initialize_train_network(trainloader, testloader, debug):
     if not os.path.exists(net_debug):
         os.makedirs(net_debug)
 
-    model = SRSN_Generator()
+    model = SRSN_RRDB()
     model = nn.DataParallel(model)
     model.to(device)
     print(next(model.parameters()).device)
@@ -483,7 +683,7 @@ def initialize_train_network(trainloader, testloader, debug):
     
     
     
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
 #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
     my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
 #     criterion = nn.MSELoss().to(device)
@@ -507,18 +707,22 @@ def initialize_train_network(trainloader, testloader, debug):
     best_loss=10000
     train=[]
     test=[]
-    psnr=[]
+    psnr_div=[]
+    psnr_flickr=[]
     if os.path.exists((os.path.join(results,"Train_loss.txt"))):
         dbfile = open(os.path.join(results,"Train_loss.txt"), 'rb')      
         train = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"Test_loss.txt"), 'rb')      
         test = pickle.load(dbfile)
-        dbfile = open(os.path.join(results,"PSNR.txt"), 'rb')      
-        psnr = pickle.load(dbfile)
+        dbfile = open(os.path.join(results,"PSNR_flickr.txt"), 'rb')      
+        psnr_flickr = pickle.load(dbfile)
+        dbfile = open(os.path.join(results,"PSNR_div.txt"), 'rb')      
+        psnr_div = pickle.load(dbfile)
     loss1=0
-    for epoch in range(48):
+    for epoch in range(80):
         training_loss=[]
-        test_loss=[]
+        test_loss_flickr=[]
+        test_loss_div=[]
         list_no=0
         for input_,target in trainloader:
             if torch.cuda.is_available():
@@ -534,15 +738,21 @@ def initialize_train_network(trainloader, testloader, debug):
             training_loss.append(loss.item())
         
         with torch.set_grad_enabled(False):
-            for local_batch, local_labels in testloader:
+            for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
-                test_loss.append(test_criterion(output, local_labels).item())
+                test_loss_div.append(test_criterion(output, local_labels).item())
+                
+            for local_batch, local_labels in testloader_flickr:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss_flickr.append(test_criterion(output, local_labels).item())
 #                 if debug == True: 
 #                     visualise_layer_activation(model,local_batch,net_debug)
 
-        my_lr_scheduler.step(test_loss[-1])
+        my_lr_scheduler.step(test_loss_flickr[-1])
         torch.save({
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -555,18 +765,23 @@ def initialize_train_network(trainloader, testloader, debug):
             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
   
         train.append(sum(training_loss)/len(training_loss))
-        test.append(sum(test_loss)/len(test_loss))
-        psnr.append(10*math.log10(255*255/(sum(test_loss)/len(test_loss))))
+        test.append(sum(test_loss_flickr)/len(test_loss_flickr))
+        psnr_flickr.append(10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        psnr_div.append(10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
         with open(os.path.join(results,"Train_loss.txt"), 'wb') as f:
                 pickle.dump(train ,f)
         with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
              pickle.dump(test,f )
-        with open(os.path.join(results,"PSNR.txt"), 'wb') as f:
-             pickle.dump(psnr,f )
+        with open(os.path.join(results,"PSNR_flickr.txt"), 'wb') as f:
+             pickle.dump(psnr_flickr,f )
+        with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
+             pickle.dump(psnr_div,f )
         print("Epoch :",epoch, flush=True)
         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
-        print("Test loss :",sum(test_loss)/len(test_loss),flush=True)
-        print("PSNR :", 10*math.log10(255*255/(sum(test_loss)/len(test_loss))))
+        print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
+        print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
+        print("PSNR for Flickr :", 10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        print("PSNR for Div :", 10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
 
         print("-----------------------------------------------------------------------------------------------------------")
     try:
@@ -580,7 +795,132 @@ def initialize_train_network(trainloader, testloader, debug):
     except IOError:
         print("Unable to create loss file")
     print("---------------------------------------------------------------------------------------------------------------")
-    print("Training Completed")
+    print("Training Completed")    
+
+# def initialize_train_network(trainloader, testloader, debug): 
+    
+#     results = "/home/harsh.shukla/SRCNN/SRSN_results"
+    
+#     if not os.path.exists(results):
+#         os.makedirs(results)
+        
+#     # Initialising Checkpointing directory 
+#     checkpoints = os.path.join(results,"Checkpoints")
+#     if not os.path.exists(checkpoints):
+#         os.makedirs(checkpoints)
+#     checkpoint_file = os.path.join(checkpoints,"check.pt")  
+    
+#     # Initialising directory for Network Debugging
+#     net_debug = os.path.join(results,"Debug")
+#     if not os.path.exists(net_debug):
+#         os.makedirs(net_debug)
+
+#     model = SRSN_RRDB()
+#     model = nn.DataParallel(model)
+#     model.to(device)
+#     print(next(model.parameters()).device)
+#     model.apply(weight_init) ## Weight initialisation 
+    
+    
+    
+#     optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
+# #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
+#     my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
+# #     criterion = nn.MSELoss().to(device)
+#     test_criterion = nn.MSELoss().to(device)
+#     criterion=nn.L1Loss().to(device)
+    
+#     # load model if exists
+#     if os.path.exists(checkpoint_file):
+#         print("Loading from Previous Checkpoint...")
+#         checkpoint = torch.load(checkpoint_file)
+#         model.load_state_dict(checkpoint['model_state_dict'])
+#         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#         model.train()
+#     else:
+#         print("No previous checkpoints exist, initialising network from start...")
+        
+#      ## Parameters in Networks
+#     print("Number of Parameters in Super Resolution Network")
+#     count_parameters(model)
+    
+#     best_loss=10000
+#     train=[]
+#     test=[]
+#     psnr=[]
+#     if os.path.exists((os.path.join(results,"Train_loss.txt"))):
+#         dbfile = open(os.path.join(results,"Train_loss.txt"), 'rb')      
+#         train = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"Test_loss.txt"), 'rb')      
+#         test = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"PSNR.txt"), 'rb')      
+#         psnr = pickle.load(dbfile)
+#     loss1=0
+#     for epoch in range(80):
+#         training_loss=[]
+#         test_loss=[]
+#         list_no=0
+#         for input_,target in trainloader:
+#             if torch.cuda.is_available():
+#                 input_ = input_.to(device)
+#                 target=target.to(device)
+#             output = model(input_)
+#             loss=criterion(output, target)
+#             loss.backward()
+#             optimizer.step()
+#             if debug == True: 
+#                 plot_grad_flow(net_debug,model.named_parameters(),"super_resolution_network")
+#             optimizer.zero_grad()
+#             training_loss.append(loss.item())
+        
+#         with torch.set_grad_enabled(False):
+#             for local_batch, local_labels in testloader:
+#                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+#                 output = model(local_batch).to(device)
+#                 local_labels.require_grad = False
+#                 test_loss.append(test_criterion(output, local_labels).item())
+# #                 if debug == True: 
+# #                     visualise_layer_activation(model,local_batch,net_debug)
+
+#         my_lr_scheduler.step(test_loss[-1])
+#         torch.save({
+#                 'model_state_dict': model.state_dict(),
+#                 'optimizer_state_dict': optimizer.state_dict(),
+#                 }, checkpoint_file)
+        
+#         if(debug == True):
+#             label=im.fromarray(np.uint8(np.moveaxis((local_labels[0]).cpu().detach().numpy(),0,-1))).convert('RGB')
+#             output=im.fromarray(np.uint8(np.moveaxis((output[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
+#             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
+#             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
+  
+#         train.append(sum(training_loss)/len(training_loss))
+#         test.append(sum(test_loss)/len(test_loss))
+#         psnr.append(10*math.log10(255*255/(sum(test_loss)/len(test_loss))))
+#         with open(os.path.join(results,"Train_loss.txt"), 'wb') as f:
+#                 pickle.dump(train ,f)
+#         with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
+#              pickle.dump(test,f )
+#         with open(os.path.join(results,"PSNR.txt"), 'wb') as f:
+#              pickle.dump(psnr,f )
+#         print("Epoch :",epoch, flush=True)
+#         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
+#         print("Test loss :",sum(test_loss)/len(test_loss),flush=True)
+#         print("PSNR :", 10*math.log10(255*255/(sum(test_loss)/len(test_loss))))
+
+#         print("-----------------------------------------------------------------------------------------------------------")
+#     try:
+#         file = open(os.path.join(results,"SR_train_loss.txt"), 'w+')
+#         try:
+#             for i in range(len(test)):
+#                 file.write(str(train[i]) + ","  + str(test[i]))
+#                 file.write('\n')
+#         finally:
+#             file.close()
+#     except IOError:
+#         print("Unable to create loss file")
+#     print("---------------------------------------------------------------------------------------------------------------")
+#     print("Training Completed")
 
 
 
@@ -596,5 +936,14 @@ if __name__ == '__main__':
         print("Running in Debug Mode.....")
         grad_flow_flag = True
 
-    trainloader, testloader = process_and_train_load_data()
-    initialize_train_network(trainloader, testloader,grad_flow_flag)
+    trainloader, testloader_flickr,testloader_div = process_and_train_load_data()
+    
+    initialize_train_network(trainloader, testloader_flickr,testloader_div,grad_flow_flag)
+    
+    
+    
+    
+    
+    
+    
+    

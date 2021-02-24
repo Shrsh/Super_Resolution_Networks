@@ -52,6 +52,14 @@ def load_images_from_folder(folder):
     return images
 
 
+def rotate(x):
+  # c, h, w = x.shape
+  # x += np.random.randn(c, h, w) * 0.15
+  # x = Image.fromarray(x)
+  # x= x.rotate(125)
+  x=np.rot90(x, k=1, axes=(0, 1))
+  return np.rot90(x, k=1, axes=(0, 1))
+
 
 def noise(x): 
   c, h, w = x.shape
@@ -84,20 +92,29 @@ def flip_channel(x):
   return xmix
 
 def flip (y):
-  z=[0.8*y[0,:,:][: :-1],0.7*y[1,:,:][: :-1],0.9*y[2,:,:][: :-1]]
-  return np.asarray(z)
+  z=[0.8*y[:,:,0][: :-1],0.7*y[:,:,1][: :-1],0.9*y[:,:,2][: :-1]]
+  z=np.asarray(z)
+  z=np.moveaxis(z,0,-1)
+  return z
+
 
 def random_crop(x):
-  z = x[:,random.randint(0,12):random.randint(20,32),random.randint(0,12):random.randint(18,30)]
-  z1 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
-  z2 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
-  z3 = cv2.resize(z[0,:,:], (32,32), interpolation = cv2.INTER_AREA)
+#   x=np.moveaxis(x,1,-1)
+#   x=np.moveaxis(x,1,-1)
+  z = x[random.randint(0,int(x.shape[0]/2)-10):random.randint(int(x.shape[0]/2)+10,x.shape[0]),random.randint(0,int(x.shape[0]/2)-10):random.randint(int(x.shape[0]/2)+10,x.shape[0]),:]
+  z1 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
+  z2 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
+  z3 = cv2.resize(z[:,:,0], (x.shape[0],x.shape[0]), interpolation = cv2.INTER_AREA)
   z=[z1,z2,z3]
-  return np.asarray(z)
+  z=np.asarray(z)
+  z=np.moveaxis(z,0,-1)
+  return z
 
 def zooming(x):
-  z = x[:,8:24,8:24]
-  z=np.kron(z, np.ones((1,2,2)))
+  z = x[int(x.shape[0]/4):x.shape[0]-int(x.shape[0]/4),int(x.shape[0]/4):x.shape[0]-int(x.shape[0]/4),:]
+  z=np.asarray(z)
+  print(z.shape)
+  z=np.kron(z, np.ones((2,2,1)))
   return z
 
 
@@ -110,13 +127,7 @@ def brightness(a):
   return LUT[a]
  
 
-def rotate(x):
-  # c, h, w = x.shape
-  # x += np.random.randn(c, h, w) * 0.15
-  # x = Image.fromarray(x)
-  # x= x.rotate(125)
-  x=np.rot90(x, k=1, axes=(0, 1))
-  return np.rot90(x, k=1, axes=(0, 1))
+
 
 
 def normalize(data):
@@ -129,15 +140,20 @@ def normalize(data):
 def process_and_train_load_data():
     train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/x')
     train_x=[i for i in train_xx]
-    print(len(train_xx))
+#     print(len(train_xx))
     for i in train_xx :
-        train_x.append(flip(i))
+        print(i.shape)
+        train_x.append(zooming(i))
+        print(zooming(i).shape)
+        break
     print(len(train_x))
 #     train_x=normalize(train_x)
     train_input=np.asarray(train_x)
     print(train_input.shape)
     train_input=np.moveaxis(train_input,1,-1)
+    print(train_input.shape)
     train_input=np.moveaxis(train_input,1,-1)
+    print(train_input.shape)
     train_input = train_input.astype(np.float32)
 
     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/HR_LR_data/train/y')
@@ -148,6 +164,7 @@ def process_and_train_load_data():
     print(len(train_y))
 #     train_y=normalize(train_y)
     train_target=np.asarray(train_y)
+    print(train_target.shape)
     train_target=np.moveaxis(train_target,1,-1)
     train_target=np.moveaxis(train_target,1,-1)
     train_target = train_target.astype(np.float32)

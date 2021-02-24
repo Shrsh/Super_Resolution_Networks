@@ -233,6 +233,8 @@ def load_images_from_folder(folder):
         if img is not None:
             images.append(img)
     return images
+
+
 class SRSN(nn.Module):
     def __init__(self, input_dim=3, dim=128, scale_factor=4):
         super(SRSN, self).__init__()
@@ -526,7 +528,7 @@ def initialize_train_network(trainloader, testloader, debug):
         dbfile = open(os.path.join(results,"PSNR.txt"), 'rb')      
         psnr = pickle.load(dbfile)
     loss1=0
-    for epoch in range(100):
+    for epoch in range(15):
         training_loss=[]
         test_loss=[]
         list_no=0
