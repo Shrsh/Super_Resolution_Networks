@@ -16,21 +16,24 @@ class pre_process:
         self.count = 0
         if string == "train": 
             path = self.train_path 
-            processed_input = "/home/harsh.shukla/SRCNN/Flickr/train/input"
-            processed_target = "/home/harsh.shukla/SRCNN/Flickr/train/target"
-            processed_dir = "/home/harsh.shukla/SRCNN/Flickr"
+            processed_input = "/home/harsh.shukla/SRCNN/SR_data/train/input"
+            processed_target = "/home/harsh.shukla/SRCNN/SR_data/train/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/SR_data/train"
         else:
             path = self.test_path
-            processed_input = "/home/harsh.shukla/SRCNN/Div2K_data/test/input"
-            processed_target = "/home/harsh.shukla/SRCNN/Div2K_data/test/target"
-#             processed_dir = "/home/harsh.shukla/SRCNN/SR_data/test/target"
+            processed_input = "/home/harsh.shukla/SRCNN/SR_data/test/input"
+            processed_target = "/home/harsh.shukla/SRCNN/SR_data/test/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/SR_data/test/"
         
         os.chdir(path)
         walker = list(os.walk(path))
         filenames = walker[0][2]
         
         os.mkdir(processed_dir)
-        os.mkdir(os.path.join(processed_dir,"train"))
+#         if string = "train":
+#             os.mkdir(os.path.join(processed_dir,"train"))
+#         else: 
+#             os.mkdir(os.path.join(processed_dir,"test"))
         os.mkdir(processed_input)
         os.mkdir(processed_target)
 #         print(filenames)
@@ -65,5 +68,5 @@ test_directory = "/scratch/harsh_cnn/test"
 # test_directory = "/home/harsh.shukla/SRCNN/RealSR (ICCV2019)/Nikon/Test/2"
 
 ob = pre_process(test_directory,train_directory)
-ob.process("train")
-# ob.process("test")
+# ob.process("train")
+ob.process("test")

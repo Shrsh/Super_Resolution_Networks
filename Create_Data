@@ -25,8 +25,8 @@ tar -xvf Flickr2K.tar
 echo "Flickr Dataset Extracted" 
 rm -rf Flickr2K.tar 
 
-#rsync -aP ada:/home/harsh.shukla/SRCNN/data/train/* /scratch/harsh_cnn/train/
-#rsync -aP ada:/home/harsh.shukla/SRCNN/data/test/*  /scratch/harsh_cnn/test
+rsync -aP ada:/home/harsh.shukla/SRCNN/data/train/* /scratch/harsh_cnn/train/
+rsync -aP ada:/home/harsh.shukla/SRCNN/data/test/*  /scratch/harsh_cnn/test
 rsync -aP /scratch/harsh_cnn/Flickr2K/Flickr2K_HR/* /scratch/harsh_cnn/train/
 
 echo "Train and Test Directories Prepared"

@@ -1,13 +1,12 @@
 #!/bin/bash
-python SRSN.py -m debug 
-python SRSN.py -m debug   
-python SRSN.py -m debug   
-python SRSN.py -m debug 
-python SRSN.py -m debug 
-python SRSN.py -m debug   
-python SRSN.py -m debug   
-python SRSN.py -m debug
-python SRSN.py -m debug 
-python SRSN.py -m debug   
-python SRSN.py -m debug   
-python SRSN.py -m debug
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+python SRSN_RRDB.py -m debug 
+

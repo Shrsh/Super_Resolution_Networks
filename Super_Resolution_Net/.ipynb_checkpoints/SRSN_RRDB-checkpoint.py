@@ -46,7 +46,7 @@ print("Number of GPUs:" + str(torch.cuda.device_count()))
 use_cuda = torch.cuda.is_available()
 torch.no_grad()
 torch.cuda.empty_cache()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
@@ -276,42 +276,46 @@ class SRSN_RRDB(nn.Module):
         super(SRSN_RRDB, self).__init__()
 #         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
         self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
-        self.conv2 = torch.nn.Conv2d(128, 64, 3, 1, 1)
-        self.RDB1 = ResidualDenseBlock(64, 32, 0.2)
-        self.RDB2 = ResidualDenseBlock(64, 32, 0.2)
-        self.RDB3 = ResidualDenseBlock(64, 32, 0.2)
-        self.RDB4 = ResidualDenseBlock(64, 32, 0.2)
-        self.RDB5 = ResidualDenseBlock(64, 32, 0.2)
-        self.RDB6 = ResidualDenseBlock(64, 32, 0.2)
+        self.conv2 = torch.nn.Conv2d(128, 64, 5, 1, 2)
+        self.RRDB1 = ResidualInResidualDenseBlock(64, 64, 0.2)
+        self.RRDB2 = ResidualInResidualDenseBlock(64, 64, 0.2)
+#         self.RDB3 = ResidualDenseBlock(64, 64, 0.2)
+#         self.RDB4 = ResidualDenseBlock(64, 64, 0.2)
+#         self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
+#         self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
         
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
-        self.conv3=torch.nn.Conv2d(64, 16, 1, 1, 0)
+        self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
         self.conv5=torch.nn.Conv2d(64*6, 64, 1, 1, 0)
+        
+#         self.bn = torch.nn.BatchNorm2d(3)
         
         self.scale_ratio = 1
 
     def forward(self, LR):
+#         LR_Feat = self.bn(LR)
         LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
-        LR_feat = (self.conv2(LR_feat))
+        LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
         
         ##Creating Skip connection between dense blocks 
-        out = self.RDB1(LR_feat) 
+        out = self.RRDB1(LR_feat) 
 #         out = out + LR_feat
-        out1= self.RDB2(out)
+        out1= self.RRDB2(out)
 #         out1= out + out1
         
-        out2 = self.RDB3(out1)
-#         out2 = out + out2
+#         out2 = self.RDB3(out1)
+# #         out2 = out + out2
         
-        out3 = self.RDB4(out2)
+#         out3 = self.RDB4(out2)
+        out3= out1 + LR_feat
 #         out3 = out + out1 + out3
-        out4 = self.RDB5(out3)
-        out5 = self.RDB6(out4)
-#         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
-#         out6=self.conv5(out6)
-        out6= out5.mul(self.scale_ratio) + LR_feat
-        out6 = self.up(out6)
+#         out4 = self.RDB5(out3)
+#         out5 = self.RDB6(out4)
+# #         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
+# #         out6=self.conv5(out6)
+#         out6= out5.mul(self.scale_ratio) + LR_feat
+        out6 = self.up(out3)
         #LR_feat = self.resnet(out3)
         SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
         SR =self.conv4(SR)
@@ -380,7 +384,7 @@ class ResnetBlock(torch.nn.Module):
 class ResidualDenseBlock(nn.Module):
     r"""The residual block structure of traditional SRGAN and Dense model is defined"""
 
-    def __init__(self, channels: int = 64, growth_channels: int = 32, scale_ratio: float = 0.2):
+    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2):
         """
 
         Args:
@@ -432,6 +436,31 @@ class ResidualDenseBlock(nn.Module):
         conv5 = self.conv5(torch.cat((input, conv1, conv2, conv3, conv4), 1))
 
         return conv5.mul(self.scale_ratio) + input
+    
+class ResidualInResidualDenseBlock(nn.Module):
+    r"""The residual block structure of traditional ESRGAN and Dense model is defined"""
+
+    def __init__(self, channels: int = 64, growth_channels: int = 32, scale_ratio: float = 0.2):
+        """
+
+        Args:
+            channels (int): Number of channels in the input image. (Default: 64).
+            growth_channels (int): how many filters to add each layer (`k` in paper). (Default: 32).
+            scale_ratio (float): Residual channel scaling column. (Default: 0.2)
+        """
+        super(ResidualInResidualDenseBlock, self).__init__()
+        self.RDB1 = ResidualDenseBlock(channels, growth_channels, scale_ratio)
+        self.RDB2 = ResidualDenseBlock(channels, growth_channels, scale_ratio)
+        self.RDB3 = ResidualDenseBlock(channels, growth_channels, scale_ratio)
+
+        self.scale_ratio = scale_ratio
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        out = self.RDB1(input)
+        out = self.RDB2(out)
+        out = self.RDB3(out)
+
+        return out.mul(self.scale_ratio) + input
     
     
     
@@ -561,13 +590,30 @@ def normalize(data):
 def process_and_train_load_data():
     train_y = []
     train_x = []
-    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/train/y')
+    data_train=[]
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/y')
+    for i in train_yy:
+        train_y.append(i)
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/x')
+    for i in train_xx:
+        train_x.append(i)
     
-    train_y=[i for i in train_yy]
-    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/train/x')
-    train_x=[i for i in train_xx]
-#     print(len(train_x))
-#     c=0
+#     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/train/y')
+#     for i in train_yy:
+#         train_y.append(i)
+#     train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/train/x')
+#     for i in train_xx:
+#         train_x.append(i)
+    
+#     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/train/y')
+#     for i in train_yy:
+#         train_y.append(i)
+#     train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/train/x')
+#     for i in train_xx:
+#         train_x.append(i)
+    
+    print("size of training set:", len(train_y))
+
 #     for i in train_yy :
 #         x=shift_horizontal(i)
 #         small_array = cv2.resize(x, (128,128))
@@ -577,69 +623,74 @@ def process_and_train_load_data():
 #         small_array = cv2.resize(x, (128,128))
 #         train_y.append(x)
 #         train_x.append(small_array)
-#         print(c)
-#         c=c+1
-#     print(len(train_y))
-    train_target=np.asarray(train_y)
-#     print(train_target.shape)
-    train_target=np.moveaxis(train_target,1,-1)
-#     print(train_target.shape)
-    train_target=np.moveaxis(train_target,1,-1)
-#     print(train_target.shape)
-    train_target = train_target.astype(np.float32)
-#     print(train_target.shape)
-    
-#     print(len(train_x))
-    train_input=np.asarray(train_x)
-#     print(train_input.shape)
-    train_input=np.moveaxis(train_input,1,-1)
-#     print(train_input.shape)
-    train_input=np.moveaxis(train_input,1,-1)
-#     print(train_input.shape)
-    train_input = train_input.astype(np.float32)
-#     print(train_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/x')
+    train_target=np.asarray(train_y)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target=np.moveaxis(train_target,1,-1)
+    train_target = train_target.astype(np.float32)
+    train_input=np.asarray(train_x)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input = train_input.astype(np.float32)
+    for input, target in zip(train_input, train_target):
+        data_train.append([input, target])
+
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
-    data_train=[]
     data_test_flickr=[]
     data_test_div=[]
-    for input, target in zip(train_input, train_target):
-        data_train.append([input, target])
+    data_test_urban=[]
     for input, target in zip(test_input, test_target):
         data_test_flickr.append([input, target])
     
     
     
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Div2K_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Div2K_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
+
     for input, target in zip(test_input, test_target):
         data_test_div.append([input, target])
+        
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
+
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
+
+    for input, target in zip(test_input, test_target):
+        data_test_urban.append([input, target])
     
     trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=48, shuffle=True)
     testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=48, shuffle=True)
     testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=48, shuffle=True)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=48, shuffle=True)
     
     
-    return trainloader, testloader_flickr,testloader_div
+    return trainloader, testloader_flickr,testloader_div,testloader_urban
 
 def calculate_mean_std_dataset(loader):
     mean = 0.
@@ -657,7 +708,7 @@ def calculate_mean_std_dataset(loader):
 
     
     
-def initialize_train_network(trainloader, testloader_flickr,testloader_div, debug): 
+def initialize_train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug): 
     
     results = "/home/harsh.shukla/SRCNN/SRSN_results"
     
@@ -683,12 +734,12 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
     
     
     
-    optimizer = optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
 #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
     my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
 #     criterion = nn.MSELoss().to(device)
     test_criterion = nn.MSELoss().to(device)
-    criterion=nn.L1Loss().to(device)
+    criterion=nn.SmoothL1Loss().to(device)
     
     # load model if exists
     if os.path.exists(checkpoint_file):
@@ -709,6 +760,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
     test=[]
     psnr_div=[]
     psnr_flickr=[]
+    psnr_urban=[]
     if os.path.exists((os.path.join(results,"Train_loss.txt"))):
         dbfile = open(os.path.join(results,"Train_loss.txt"), 'rb')      
         train = pickle.load(dbfile)
@@ -718,11 +770,14 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
         psnr_flickr = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"PSNR_div.txt"), 'rb')      
         psnr_div = pickle.load(dbfile)
+        dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
+        psnr_bsd = pickle.load(dbfile)
     loss1=0
     for epoch in range(80):
         training_loss=[]
         test_loss_flickr=[]
         test_loss_div=[]
+        test_loss_urban=[]
         list_no=0
         for input_,target in trainloader:
             if torch.cuda.is_available():
@@ -738,6 +793,12 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
             training_loss.append(loss.item())
         
         with torch.set_grad_enabled(False):
+            for local_batch, local_labels in testloader_urban:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss_urban.append(test_criterion(output, local_labels).item())
+                
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
@@ -768,6 +829,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
         test.append(sum(test_loss_flickr)/len(test_loss_flickr))
         psnr_flickr.append(10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
         psnr_div.append(10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        psnr_urban.append(10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))
         with open(os.path.join(results,"Train_loss.txt"), 'wb') as f:
                 pickle.dump(train ,f)
         with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
@@ -776,12 +838,16 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div, debu
              pickle.dump(psnr_flickr,f )
         with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
              pickle.dump(psnr_div,f )
+        with open(os.path.join(results,"PSNR_bsd.txt"), 'wb') as f:
+             pickle.dump(psnr_urban,f )
         print("Epoch :",epoch, flush=True)
         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
         print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
+        print("Test loss for Urban:",sum(test_loss_urban)/len(test_loss_urban),flush=True)
         print("PSNR for Flickr :", 10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
         print("PSNR for Div :", 10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        print("PSNR for Urban100 :", 10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))
 
         print("-----------------------------------------------------------------------------------------------------------")
     try:
@@ -936,9 +1002,8 @@ if __name__ == '__main__':
         print("Running in Debug Mode.....")
         grad_flow_flag = True
 
-    trainloader, testloader_flickr,testloader_div = process_and_train_load_data()
-    
-    initialize_train_network(trainloader, testloader_flickr,testloader_div,grad_flow_flag)
+    trainloader, testloader_flickr,testloader_div,testloader_urban = process_and_train_load_data()
+    initialize_train_network(trainloader, testloader_flickr,testloader_div,testloader_urban,grad_flow_flag)
     
     
     

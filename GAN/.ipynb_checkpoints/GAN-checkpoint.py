@@ -169,43 +169,110 @@ def load_images_from_folder(folder):
         # if c==8
     return images
 
-def prepare_data(b_size=8):
-    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/x')
-    train_input=np.asarray(train)
-    train_input=np.moveaxis(train_input,1,-1)
-    train_input=np.moveaxis(train_input,1,-1)
-    train_input = train_input.astype(np.float32)
+def process_and_train_load_data():
+    train_y = []
+    train_x = []
+    data_train=[]
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/train/y')
+    for i in train_yy:
+        train_y.append(i)
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/train/x')
+    for i in train_xx:
+        train_x.append(i)
+    
+    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/train/y')
+    for i in train_yy:
+        train_y.append(i)
+    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/train/x')
+    for i in train_xx:
+        train_x.append(i)
+    
+#     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/train/y')
+#     for i in train_yy:
+#         train_y.append(i)
+#     train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/train/x')
+#     for i in train_xx:
+#         train_x.append(i)
+    
+    print("size of training set:", len(train_y))
 
-    train= load_images_from_folder('/scratch/harsh_cnn/SR_data/train/y')
-    train_target=np.asarray(train)
+#     for i in train_yy :
+#         x=shift_horizontal(i)
+#         small_array = cv2.resize(x, (128,128))
+#         train_y.append(x)
+#         train_x.append(small_array)
+#         x=rotate(i)
+#         small_array = cv2.resize(x, (128,128))
+#         train_y.append(x)
+#         train_x.append(small_array)
+
+    train_target=np.asarray(train_y)
     train_target=np.moveaxis(train_target,1,-1)
     train_target=np.moveaxis(train_target,1,-1)
     train_target = train_target.astype(np.float32)
+    train_input=np.asarray(train_x)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input=np.moveaxis(train_input,1,-1)
+    train_input = train_input.astype(np.float32)
+    for input, target in zip(train_input, train_target):
+        data_train.append([input, target])
 
-    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/scratch/harsh_cnn/SR_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Flickr/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
-    data_train=[]
-    data_test=[]
+    data_test_flickr=[]
+    data_test_div=[]
+    data_test_urban=[]
+    for input, target in zip(test_input, test_target):
+        data_test_flickr.append([input, target])
     
-    for input, target in zip(train_input, train_target):
-        data_train.append([input, target])
+    
+    
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
+
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
 
     for input, target in zip(test_input, test_target):
-        data_test.append([input, target])
+        data_test_div.append([input, target])
+        
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/x')
+    test_input=np.asarray(test)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input=np.moveaxis(test_input,1,-1)
+    test_input = test_input.astype(np.float32)
 
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=b_size, shuffle=True)
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=b_size, shuffle=True)
-    return trainloader,testloader
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/y')
+    test_target=np.asarray(test)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target=np.moveaxis(test_target,1,-1)
+    test_target = test_target.astype(np.float32)
 
+    for input, target in zip(test_input, test_target):
+        data_test_urban.append([input, target])
+    
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=48, shuffle=True)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=48, shuffle=True)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=48, shuffle=True)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=48, shuffle=True)
+    
+    
+    return trainloader, testloader_flickr,testloader_div,testloader_urban
 ################################################################
 
 class DiscriminativeNet(torch.nn.Module):
@@ -399,23 +466,21 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss):
     optimizer.zero_grad()
     
-    lambda_ = 0.00001
+    lambda_ = 0.005
     
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
     ## Adversarial Loss 
     prediction = discriminator(fake_data)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
-    total_loss = lambda_*loss + error 
+    total_loss = loss + lambda_*error 
     total_loss.backward()
-#     clipping_value = 1 
-#     torch.nn.utils.clip_grad_norm_(model.parameters(), clipping_value)
     optimizer.step()
     return loss,error,total_loss
 
 
 
-def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
+def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=7):
 
     discriminator = DiscriminativeNet()
     model=SRSN()
@@ -433,7 +498,9 @@ def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
     train_g_rec=[]
     train_g_dis=[]
     test=[]
-    
+    psnr_div=[]
+    psnr_flickr=[]
+    psnr_urban=[]
     ## Parameters in Networks
     print("Number of Parameters in Generator")
     count_parameters(model)
@@ -470,13 +537,16 @@ def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
         discriminator.train()
     else:
         print("No previous checkpoints exist, initialising network from start...")
+        
 
     for epoch in range(num_epochs):
         training_loss_d=[]
         training_rec_loss_g=[]
         training_dis_loss_g=[]
         training_loss_g = []
-        test_loss=[]
+        test_loss_flickr=[]
+        test_loss_div=[]
+        test_loss_urban=[]
         count = 0
         list_no=0
         for input_,real_data in trainloader:
@@ -500,11 +570,23 @@ def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
             plot_grad_flow(net_debug,discriminator.named_parameters(),"discriminator")
         
         with torch.set_grad_enabled(False):
-            for local_batch, local_labels in testloader:
+            for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
-                test_loss.append(Mse_loss(output, local_labels).item())
+                test_loss_urban.append(Mse_loss(output, local_labels).item())
+                
+            for local_batch, local_labels in testloader_div:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss_div.append(Mse_loss(output, local_labels).item())
+                
+            for local_batch, local_labels in testloader_flickr:
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                output = model(local_batch).to(device)
+                local_labels.require_grad = False
+                test_loss_flickr.append(Mse_loss(output, local_labels).item())
                 
         if debug == True:
             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
@@ -512,35 +594,37 @@ def train_network(debug,trainloader, testloader,num_epochs=200,K=7):
             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
         
-        #Calculating average loss per epoch
-        train_d.append(sum(training_loss_d)/len(training_loss_d))
-        train_g_rec.append(sum(training_rec_loss_g)/len(training_rec_loss_g))
-        train_g_dis.append(sum(training_dis_loss_g)/len(training_dis_loss_g))
-        train_g.append(sum(training_loss_g)/len(training_loss_g))
-        test.append(sum(test_loss)/len(test_loss))
         ##Creating Checkpoints
-        if epoch % 5 == 0:
+        if epoch % 1 == 0:
             torch.save({
                 'generator_state_dict': model.state_dict(),
                 'discriminator_state_dict': discriminator.state_dict(),
                 'g_state_dict': g_optimizer.state_dict(),
                 'd_state_dict': d_optimizer.state_dict(),
                 }, checkpoint_file)
-            with open(os.path.join(results,"Generator_loss.txt"), 'wb') as f:
-                pkl.dump(train_g ,f)
-            with open(os.path.join(results,"Discriminator_loss.txt"), 'wb') as f:
-                pkl.dump(train_d ,f)
-            with open(os.path.join(results,"Test_loss.txt"), 'wb') as f:
-                pkl.dump(test,f )
         print("Epoch :",epoch )
-        print("Discriminator Loss :",train_d[-1])
-        print("Generator Reconstruction Loss :",train_g_rec[-1])
-        print("Generator Adversarial Loss :",train_g_dis[-1])
-        print("Total Generator Loss:",train_g[-1])
-
+        print("Discriminator Loss :",sum(training_loss_d)/len(training_loss_d))
+        print("Generator Reconstruction Loss :",sum(training_rec_loss_g)/len(training_rec_loss_g))
+        print("Generator Adversarial Loss :",sum(training_dis_loss_g)/len(training_dis_loss_g))
+        print("Total Generator Loss:",sum(training_loss_g)/len(training_loss_g))
         print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
-        print("Test loss :",test[-1])
-
+        
+        psnr_flickr.append(10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        psnr_div.append(10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        psnr_urban.append(10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))
+        with open(os.path.join(results,"PSNR_flickr.txt"), 'wb') as f:
+             pickle.dump(psnr_flickr,f )
+        with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
+             pickle.dump(psnr_div,f )
+        with open(os.path.join(results,"PSNR_bsd.txt"), 'wb') as f:
+             pickle.dump(psnr_urban,f )
+#         print("Epoch :",epoch, flush=True)
+#         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
+        print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
+#         print("Test loss for Urban:",sum(test_loss_urban)/len(test_loss_urban),flush=True)
+        print("PSNR for Flickr :", 10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        print("PSNR for Div :", 10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        print("PSNR for Urban100 :", 10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))  
         print("-----------------------------------------------------------------------------------------------------------")
     try:
         file = open(os.path.join(results,"GAN_train_loss.txt"), 'w+')
@@ -571,8 +655,9 @@ if __name__ == '__main__':
     
     
     
-    trainloader, testloader = prepare_data(b_size=23)
-    print("Initialised Data Loaders")
-    train_network(grad_flow_flag,trainloader, testloader,num_epochs=300)
+    trainloader, testloader_flickr,testloader_div,testloader_urban = process_and_train_load_data()
+    print("Initialised Data Loader ....")
+    train_network(trainloader, testloader_flickr,testloader_div,testloader_urban,grad_flow_flag)
+    
 
 
