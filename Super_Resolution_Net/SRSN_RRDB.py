@@ -235,6 +235,26 @@ def load_images_from_folder(folder):
     return images
 
 
+
+class VGGFeatureExtractor(nn.Module):
+    def __init__(self,
+                 feature_layer=36,
+                 use_bn=False,
+                 device=torch.device('cuda')):
+        super(VGGFeatureExtractor, self).__init__()
+        if use_bn:
+            model = torchvision.models.vgg19_bn(pretrained=True)
+        else:
+            model = torchvision.models.vgg19(pretrained=True)
+        self.features = nn.Sequential(*list(model.features.children())[:(feature_layer + 1)])
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        return self.features(x)
+    
+    
+
 class SRSN_Generator(nn.Module):
     def __init__(self, input_dim=3, dim=64, scale_factor=4):
         super(SRSN_Generator, self).__init__()
@@ -684,10 +704,10 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_urban.append([input, target])
     
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=48, shuffle=True)
-    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=48, shuffle=True)
-    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=48, shuffle=True)
-    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=48, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=10, shuffle=True)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=10, shuffle=True)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=10, shuffle=True)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=10, shuffle=True)
     
     
     return trainloader, testloader_flickr,testloader_div,testloader_urban
@@ -729,6 +749,10 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
     model = SRSN_RRDB()
     model = nn.DataParallel(model)
     model.to(device)
+    
+    vgg_features=VGGFeatureExtractor().cuda()
+    vgg_features.to(device)
+    
     print(next(model.parameters()).device)
     model.apply(weight_init) ## Weight initialisation 
     
@@ -736,7 +760,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
     
     optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
 #     optimizer  = optim.RMSprop(params, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
-    my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
+    my_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0.000001, eps=1e-08, verbose=False)
 #     criterion = nn.MSELoss().to(device)
     test_criterion = nn.MSELoss().to(device)
     criterion=nn.SmoothL1Loss().to(device)
@@ -773,8 +797,10 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
         dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
         psnr_bsd = pickle.load(dbfile)
     loss1=0
-    for epoch in range(80):
+    for epoch in range(9):
         training_loss=[]
+        training_loss_percp=[]
+        training_loss_reconstruction=[]
         test_loss_flickr=[]
         test_loss_div=[]
         test_loss_urban=[]
@@ -784,13 +810,19 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
                 input_ = input_.to(device)
                 target=target.to(device)
             output = model(input_)
-            loss=criterion(output, target)
+            features_gt=vgg_features(target)
+            features_out=vgg_features(output)
+            loss_reconstruction=criterion(output, target)
+            loss_perceptual=criterion(features_gt, features_out)
+            loss=loss_reconstruction+loss_perceptual
             loss.backward()
             optimizer.step()
             if debug == True: 
                 plot_grad_flow(net_debug,model.named_parameters(),"super_resolution_network")
             optimizer.zero_grad()
             training_loss.append(loss.item())
+            training_loss_percp.append(loss_perceptual.item())
+            training_loss_reconstruction.append(loss_reconstruction.item())
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
@@ -842,6 +874,8 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
              pickle.dump(psnr_urban,f )
         print("Epoch :",epoch, flush=True)
         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
+        print("Perceptual Training loss :",sum(training_loss_percp)/len(training_loss),flush=True)
+        print("Reconstruction Training loss :",sum(training_loss_reconstruction)/len(training_loss),flush=True)
         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
         print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
         print("Test loss for Urban:",sum(test_loss_urban)/len(test_loss_urban),flush=True)
