@@ -42,7 +42,6 @@ from scipy.ndimage.filters import gaussian_filter
 # CUDA for PyTorch
 print("Number of GPUs:" + str(torch.cuda.device_count()))
 
-
 use_cuda = torch.cuda.is_available()
 torch.no_grad()
 torch.cuda.empty_cache()
@@ -54,6 +53,9 @@ torch.backends.cudnn.benchmark = True
 trans = transforms.ToPILImage()
 trans1 = transforms.ToTensor()
 torch.autograd.set_detect_anomaly(True)
+
+#custom Initializer
+from initializer import kaiming_normal_
 
 ### Network Debugging
 #########################################################################
@@ -153,7 +155,7 @@ def weight_init(m):
 #         init.kaiming_uniform_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
 #         init.xavier_normal_(m.weight.data)
 #         init.xavier_uniform_(m.weight.data, gain=1.0)
-        torch.nn.init.kaiming_normal_(m.weight.data, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        kaiming_normal_(m.weight.data, mode='fan_in')
         if m.bias is not None:
             init.normal_(m.bias.data)
     elif isinstance(m, nn.Conv3d):
@@ -297,17 +299,20 @@ class SRSN_RRDB(nn.Module):
 #         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
         self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
         self.conv2 = torch.nn.Conv2d(128, 64, 5, 1, 2)
-        self.RRDB1 = ResidualInResidualDenseBlock(64, 64, 0.2)
-        self.RRDB2 = ResidualInResidualDenseBlock(64, 64, 0.2)
-#         self.RDB3 = ResidualDenseBlock(64, 64, 0.2)
-#         self.RDB4 = ResidualDenseBlock(64, 64, 0.2)
-#         self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
-#         self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB1 = ResidualInResidualDenseBlock(64, 64, 0.2)
+        self.RDB2 = ResidualInResidualDenseBlock(64, 64, 0.2)
+        self.RDB3 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB4 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
         
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
         self.conv5=torch.nn.Conv2d(64*6, 64, 1, 1, 0)
+        
+        self.act1 = nn.PReLU()
+        self.act2 = nn.PReLU()
         
 #         self.bn = torch.nn.BatchNorm2d(3)
         
@@ -315,29 +320,29 @@ class SRSN_RRDB(nn.Module):
 
     def forward(self, LR):
 #         LR_Feat = self.bn(LR)
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
-        LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
+        LR_feat = self.act1(self.conv1(LR))
+        LR_feat = self.act1(self.conv2(LR_feat))
         
         ##Creating Skip connection between dense blocks 
-        out = self.RRDB1(LR_feat) 
+        out = self.RDB1(LR_feat) 
 #         out = out + LR_feat
-        out1= self.RRDB2(out)
+        out1= self.RDB2(out)
 #         out1= out + out1
         
-#         out2 = self.RDB3(out1)
+        out2 = self.RDB3(out1)
 # #         out2 = out + out2
         
-#         out3 = self.RDB4(out2)
-        out3= out1 + LR_feat
+        out3 = self.RDB4(out2)
+        out3= out3 + LR_feat
 #         out3 = out + out1 + out3
-#         out4 = self.RDB5(out3)
-#         out5 = self.RDB6(out4)
+        out4 = self.RDB5(out3)
+        out5 = self.RDB6(out4)
 # #         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
 # #         out6=self.conv5(out6)
-#         out6= out5.mul(self.scale_ratio) + LR_feat
-        out6 = self.up(out3)
+        out6= out5.mul(self.scale_ratio) + LR_feat
+        out6 = self.up(out6)
         #LR_feat = self.resnet(out3)
-        SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
+        SR=self.act2(self.conv3(out6))
         SR =self.conv4(SR)
         # print(SR.shape)
         return SR   
@@ -415,19 +420,23 @@ class ResidualDenseBlock(nn.Module):
         super(ResidualDenseBlock, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(channels + 0 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True)
+            nn.PReLU()
         )
         self.conv2 = nn.Sequential(
             nn.Conv2d(channels + 1 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True)
+            nn.PReLU()
         )
         self.conv3 = nn.Sequential(
             nn.Conv2d(channels + 2 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True)
+            nn.PReLU()
         )
         self.conv4 = nn.Sequential(
             nn.Conv2d(channels + 3 * growth_channels, growth_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True)
+            nn.PReLU()
         )
         self.conv5 = nn.Conv2d(channels + 4 * growth_channels, channels, kernel_size=3, stride=1, padding=1)
 
@@ -704,10 +713,10 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_urban.append([input, target])
     
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=10, shuffle=True)
-    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=10, shuffle=True)
-    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=10, shuffle=True)
-    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=10, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=8, shuffle=True)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=8, shuffle=True)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=8, shuffle=True)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=8, shuffle=True)
     
     
     return trainloader, testloader_flickr,testloader_div,testloader_urban
@@ -750,8 +759,13 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
     model = nn.DataParallel(model)
     model.to(device)
     
-    vgg_features=VGGFeatureExtractor().cuda()
-    vgg_features.to(device)
+    vgg_features_high=VGGFeatureExtractor(feature_layer=16).cuda()
+    vgg_features_high.to(device)
+    
+    vgg_features_low=VGGFeatureExtractor(feature_layer=5).cuda()
+    vgg_features_low.to(device)
+    
+    
     
     print(next(model.parameters()).device)
     model.apply(weight_init) ## Weight initialisation 
@@ -795,11 +809,12 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
         dbfile = open(os.path.join(results,"PSNR_div.txt"), 'rb')      
         psnr_div = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
-        psnr_bsd = pickle.load(dbfile)
+        psnr_urban = pickle.load(dbfile)
     loss1=0
-    for epoch in range(9):
+    for epoch in range(7):
         training_loss=[]
-        training_loss_percp=[]
+        training_loss_percp_high=[]
+        training_loss_percp_low=[]
         training_loss_reconstruction=[]
         test_loss_flickr=[]
         test_loss_div=[]
@@ -810,19 +825,24 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
                 input_ = input_.to(device)
                 target=target.to(device)
             output = model(input_)
-            features_gt=vgg_features(target)
-            features_out=vgg_features(output)
+            features_gt=vgg_features_high(target)
+            features_out=vgg_features_high(output)
+            features_low_gt = vgg_features_low(target)
+            features_low_out = vgg_features_low(output)
+            
             loss_reconstruction=criterion(output, target)
-            loss_perceptual=criterion(features_gt, features_out)
-            loss=loss_reconstruction+loss_perceptual
+            loss_perceptual_high=criterion(features_gt, features_out)
+            loss_perceptual_low = criterion(features_low_gt,features_low_out)
+            loss=loss_reconstruction+0.05*loss_perceptual_high+ 0.1*loss_perceptual_low
             loss.backward()
             optimizer.step()
             if debug == True: 
                 plot_grad_flow(net_debug,model.named_parameters(),"super_resolution_network")
             optimizer.zero_grad()
             training_loss.append(loss.item())
-            training_loss_percp.append(loss_perceptual.item())
+            training_loss_percp_high.append(loss_perceptual_high.item())
             training_loss_reconstruction.append(loss_reconstruction.item())
+            training_loss_percp_low.append(loss_perceptual_low.item())
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
@@ -874,7 +894,9 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
              pickle.dump(psnr_urban,f )
         print("Epoch :",epoch, flush=True)
         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
-        print("Perceptual Training loss :",sum(training_loss_percp)/len(training_loss),flush=True)
+        print("Perceptual Training loss- High level Features :",sum(training_loss_percp_high)/len(training_loss_percp_high),flush=True)
+        print("Perceptual Training loss- Low level Features :",sum(training_loss_percp_low)/len(training_loss_percp_low),flush=True)
+
         print("Reconstruction Training loss :",sum(training_loss_reconstruction)/len(training_loss),flush=True)
         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
         print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
