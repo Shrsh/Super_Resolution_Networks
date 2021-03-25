@@ -28,14 +28,14 @@ def load_images_from_folder(folder):
 
 def process_and_train_load_data():
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/x')
     test_input=np.asarray(test)
     print(test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/Flickr/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)

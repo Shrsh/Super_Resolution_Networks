@@ -420,7 +420,7 @@ def kaiming_normal_(tensor, a=0, mode='fan_in', nonlinearity='leaky_relu'):
     gain = calculate_gain(nonlinearity, a)
     std = gain / math.sqrt(fan)
     with torch.no_grad():
-        return tensor.normal_(0, 0.5*std)
+        return tensor.normal_(0, 0.3*std)
 
 
 
