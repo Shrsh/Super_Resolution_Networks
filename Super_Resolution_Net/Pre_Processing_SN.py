@@ -16,14 +16,14 @@ class pre_process:
         self.count = 0
         if string == "train": 
             path = self.train_path 
-            processed_input = "/home/harsh.shukla/SRCNN/SR_data/train/input"
-            processed_target = "/home/harsh.shukla/SRCNN/SR_data/train/target"
-            processed_dir = "/home/harsh.shukla/SRCNN/SR_data/train"
+            processed_input = "/home/harsh.shukla/SRCNN/SR_data_512/train/input"
+            processed_target = "/home/harsh.shukla/SRCNN/SR_data_512/train/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/SR_data_512/train"
         else:
             path = self.test_path
-            processed_input = "/home/harsh.shukla/SRCNN/SR_data/test/input"
-            processed_target = "/home/harsh.shukla/SRCNN/SR_data/test/target"
-            processed_dir = "/home/harsh.shukla/SRCNN/SR_data/test/"
+            processed_input = "/home/harsh.shukla/SRCNN/SR_data_512/test/input"
+            processed_target = "/home/harsh.shukla/SRCNN/SR_data_512/test/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/SR_data_512/test/"
         
         os.chdir(path)
         walker = list(os.walk(path))
@@ -40,13 +40,13 @@ class pre_process:
         for i in filenames:
             print(i)
             im = Image.open(i)
-            left = int(im.size[0]/2-512/2)
-            upper = int(im.size[1]/2-512/2)
-            right = left + 512
-            lower = upper + 512
+            left = int(im.size[0]/2-1600/2)
+            upper = int(im.size[1]/2-1600/2)
+            right = left + 1600
+            lower = upper + 1600
             im = im.crop((left, upper,right,lower))
             im.save(os.path.join(processed_input, str(self.count) + '.png'))
-            im = im.resize((128,128))
+            im = im.resize((400,400))
             im.save(os.path.join(processed_target, str(self.count)  + '.png'))
             self.count+=1
 #             if i.split('.')[0][-1]== path[-1] :

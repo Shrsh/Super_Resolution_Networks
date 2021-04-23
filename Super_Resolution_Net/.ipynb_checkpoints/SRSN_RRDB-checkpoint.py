@@ -353,13 +353,13 @@ class SRSN_RRDB(nn.Module):
         super(SRSN_RRDB, self).__init__()
 #         self.up = nn.ConvTranspose2d(3,3, 1, stride=1,output_size=(512,512))
         self.conv1 = torch.nn.Conv2d(3, 128, 9, 1, 4)
-        self.conv2 = torch.nn.Conv2d(128, 64, 5, 1, 2)
+        self.conv2 = torch.nn.Conv2d(128, 64, 5, 1,2)
         self.RDB1 = ResidualInResidualDenseBlock(64, 64, 0.2)
         self.RDB2 =ResidualInResidualDenseBlock(64, 64, 0.2)
-        self.RDB3 = ResidualInResidualDenseBlock(64, 64, 0.2)
-        self.RDB4 = ResidualInResidualDenseBlock(64, 64, 0.2)
-#         self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
-#         self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB3 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB4 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
+        self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
         
         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
@@ -387,15 +387,15 @@ class SRSN_RRDB(nn.Module):
         out2 = self.RDB3(out1)
 # #         out2 = out + out2
         
-        out2= out2 + LR_feat
+#         out2= out2 + LR_feat
         out3 = self.RDB4(out2)
-#         out3= out3 + LR_feat
+        out3= out3 + LR_feat
 #         out3 = out + out1 + out3
-#         out4 = self.RDB5(out3)
-#         out5 = self.RDB6(out4)
-# #         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
-# #         out6=self.conv5(out6)
-        out6= out3.mul(self.scale_ratio) + LR_feat
+        out4 = self.RDB5(out3)
+        out5 = self.RDB6(out4)
+        out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
+        out6=self.conv5(out6)
+        out6= out6.mul(self.scale_ratio) + LR_feat
         out6 = self.up(out6)
         #LR_feat = self.resnet(out3)
         SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
@@ -520,7 +520,7 @@ class BasicConv(nn.Module):
     
 class RRFB(nn.Module):#RDB in parallel with RFB
 
-    def __init__(self, in_planes, out_planes, stride=1, scale = 0.1):
+    def __init__(self, in_planes, out_planes, stride=1, scale = 0.2):
         super(RRFB, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
@@ -548,7 +548,7 @@ class RRFB(nn.Module):#RDB in parallel with RFB
                 BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False)
                 )
         self.branch4=nn.Sequential( 
-                ResidualDenseBlock(in_planes, out_planes, 0.2)
+                ResidualDenseBlock(in_planes, out_planes, 1)
                 )
 
         self.ConvLinear = BasicConv(4*inter_planes+out_planes, out_planes, kernel_size=1, stride=1, relu=False)
@@ -652,7 +652,7 @@ class ResidualFieldDenseBlock(nn.Module):
 class ResidualDenseBlock(nn.Module):
     r"""The residual block structure of traditional SRGAN and Dense model is defined"""
 
-    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2):
+    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 1):
         """
 
         Args:
@@ -927,13 +927,13 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_div.append([input, target])
         
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Urban100/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -963,6 +963,7 @@ def calculate_mean_std_dataset(loader):
 
     mean /= nb_samples
     std /= nb_samples
+    
 
     
     
@@ -984,16 +985,15 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
     if not os.path.exists(net_debug):
         os.makedirs(net_debug)
 
-    model = SRSN_RRDB()
+    model =SRSN_RRDB()
     model = nn.DataParallel(model)
     model.to(device)
     
     vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
     
-    vgg_features_low=nn.DataParallel(VGGFeatureExtractor(feature_layer=10))
-    vgg_features_low.to(device)
-    
+#     vgg_features_low=nn.DataParallel(VGGFeatureExtractor(feature_layer=10))
+#     vgg_features_low.to(device)
     
     
     print(next(model.parameters()).device)
@@ -1022,7 +1022,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
     print("Number of Parameters in Super Resolution Network")
     count_parameters(model)
     
-    best_loss=10000
+    best_psnr=24
     train=[]
     test=[]
     psnr_div=[]
@@ -1040,7 +1040,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
         dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
         psnr_urban = pickle.load(dbfile)
     loss1=0
-    for epoch in range(6):
+    for epoch in range(3):
         training_loss=[]
         training_loss_percp_high=[]
         training_loss_percp_low=[]
@@ -1056,13 +1056,13 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
             output = model(input_)
             features_gt=vgg_features_high(target)
             features_out=vgg_features_high(output)
-            features_low_gt = vgg_features_low(target)
-            features_low_out = vgg_features_low(output)
+#             features_low_gt = vgg_features_low(target)
+#             features_low_out = vgg_features_low(output)
             
             loss_reconstruction=criterion(output, target)
             loss_perceptual_high=criterion(features_gt, features_out)
-            loss_perceptual_low = criterion(features_low_gt,features_low_out)
-#             loss_perceptual_low = 0
+#             loss_perceptual_low = criterion(features_low_gt,features_low_out)
+            loss_perceptual_low = 0
             loss=loss_reconstruction+loss_perceptual_high+0.2*loss_perceptual_low
             loss.sum().backward()
             optimizer.step()
@@ -1072,7 +1072,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
             training_loss.append(loss.sum().item())
             training_loss_percp_high.append(loss_perceptual_high.sum().item())
             training_loss_reconstruction.append(loss_reconstruction.sum().item())
-            training_loss_percp_low.append(loss_perceptual_low.sum().item())
+#             training_loss_percp_low.append(loss_perceptual_low.sum().item())
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
@@ -1094,18 +1094,17 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
                 test_loss_flickr.append(test_criterion(output, local_labels).sum().item())
 #                 if debug == True: 
 #                     visualise_layer_activation(model,local_batch,net_debug)
-
         my_lr_scheduler.step(training_loss[-1])
         torch.save({
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 }, checkpoint_file)
         
-        if(debug == True):
-            label=im.fromarray(np.uint8(np.moveaxis((local_labels[0]).cpu().detach().numpy(),0,-1))).convert('RGB')
-            output=im.fromarray(np.uint8(np.moveaxis((output[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
-            label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
-            output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
+#         if(debug == True):
+#             label=im.fromarray(np.uint8(np.moveaxis((local_labels[0]).cpu().detach().numpy(),0,-1))).convert('RGB')
+#             output=im.fromarray(np.uint8(np.moveaxis((output[0].cpu()).detach().numpy(),0,-1))).convert('RGB')
+#             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
+#             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
   
         train.append(sum(training_loss)/len(training_loss))
         test.append(sum(test_loss_flickr)/len(test_loss_flickr))
@@ -1125,7 +1124,7 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
         print("Epoch :",epoch, flush=True)
         print("Training loss :",sum(training_loss)/len(training_loss),flush=True)
         print("Perceptual Training loss- High level Features :",sum(training_loss_percp_high)/len(training_loss_percp_high),flush=True)
-        print("Perceptual Training loss- Low level Features :",sum(training_loss_percp_low)/len(training_loss_percp_low),flush=True)
+#         print("Perceptual Training loss- Low level Features :",sum(training_loss_percp_low)/len(training_loss_percp_low),flush=True)
 
         print("Reconstruction Training loss :",sum(training_loss_reconstruction)/len(training_loss),flush=True)
         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
@@ -1134,6 +1133,15 @@ def initialize_train_network(trainloader, testloader_flickr,testloader_div,testl
         print("PSNR for Flickr :", 10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
         print("PSNR for Div :", 10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
         print("PSNR for Urban100 :", 10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))
+        
+        del training_loss
+        del training_loss_percp_high
+        del training_loss_percp_low
+        del training_loss_reconstruction
+        del test_loss_flickr
+        del test_loss_div
+        del test_loss_urban
+
 
         print("-----------------------------------------------------------------------------------------------------------")
     try:
@@ -1287,9 +1295,41 @@ if __name__ == '__main__':
     if args.debug == "debug": 
         print("Running in Debug Mode.....")
         grad_flow_flag = True
+        
+        
+        
+    
+#     results = "/home/harsh.shukla/SRCNN/SRSN_results"
+#     if not os.path.exists(results):
+#         os.makedirs(results)
+    
+#     if os.path.exists((os.path.join(results,"Train_loader.txt"))):
+#         dbfile = open(os.path.join(results,"Train_loader.txt"), 'rb')      
+#         trainloader = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"Test_loader_flickr.txt"), 'rb')      
+#         testloader_flickr = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"Test_loader_div.txt"), 'rb')      
+#         testloader_div = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"Test_loader_urban.txt"), 'rb')      
+#         testloader_urban = pickle.load(dbfile)
 
+#     else:
+#         trainloader, testloader_flickr,testloader_div,testloader_urban = process_and_train_load_data()
+#         with open(os.path.join(results,"Train_loader.txt"), 'wb') as f:
+#                 pickle.dump(trainloader ,f)
+#         with open(os.path.join(results,"Test_loader_flickr.txt"), 'wb') as f:
+#              pickle.dump(testloader_flickr,f )
+#         with open(os.path.join(results,"Test_loader_div.txt"), 'wb') as f:
+#              pickle.dump(testloader_div,f )
+#         with open(os.path.join(results,"Test_loader_urban.txt"), 'wb') as f:
+#              pickle.dump(testloader_urban,f )
+
+
+
+    
     trainloader, testloader_flickr,testloader_div,testloader_urban = process_and_train_load_data()
     initialize_train_network(trainloader, testloader_flickr,testloader_div,testloader_urban,grad_flow_flag)
+        
     
     
     

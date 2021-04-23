@@ -58,7 +58,6 @@ cd test
 mv input y
 mv target x
 cd ..
-python /home/harsh.shukla/SRCNN/Codes/GAN/GAN.py -m debug
 
 echo "================================"
 echo "-- D-O-N-E---"
