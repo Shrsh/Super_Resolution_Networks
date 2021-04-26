@@ -396,10 +396,10 @@ def process_and_train_load_data():
     testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=16, shuffle=True)
     testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=16, shuffle=True)
     
-    calculate_mean_std_dataset(trainloader)
-    calculate_mean_std_dataset(testloader_flickr)
-    calculate_mean_std_dataset(testloader_div)
-    calculate_mean_std_dataset(testloader_urban)
+#     calculate_mean_std_dataset(trainloader)
+#     calculate_mean_std_dataset(testloader_flickr)
+#     calculate_mean_std_dataset(testloader_div)
+#     calculate_mean_std_dataset(testloader_urban)
     
     return trainloader, testloader_flickr,testloader_div,testloader_urban
 
@@ -615,7 +615,7 @@ class SRSN_RRDB(nn.Module):
 class ResidualDenseBlock(nn.Module):
     r"""The residual block structure of traditional SRGAN and Dense model is defined"""
 
-    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 1):
+    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2):
         """
 
         Args:
@@ -695,11 +695,11 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     # 1. Train on Real Data
     truth_real=Variable(torch.ones(real_data.size(0), 1))-0.1
 #     truth_real=Variable(torch.Tensor(real_data.size(0), 1).fill_(0.9).type(dtype))
-    error_real = b_loss(prediction_real.to(device), truth_real.to(device))  
+    error_real = b_loss(prediction_real.to(device), truth_real.to(device))*0 
     error_real.mean().backward(retain_graph=True)
 
     # 2. Train on Fake Data
-    error_fake = b_loss(prediction_fake .to(device), Variable(torch.zeros(real_data.size(0), 1)).to(device))
+    error_fake = b_loss(prediction_fake .to(device), Variable(torch.zeros(real_data.size(0), 1)).to(device))*0
     error_fake.mean().backward()
     optimizer.step()
 
@@ -710,7 +710,7 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
     optimizer.zero_grad()
     
-    lambda_ = 0.01
+    lambda_ = 0.0
     
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
@@ -738,19 +738,9 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     discriminator=discriminator.to(device)
     vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
-    
-
-    transform_train_d = transforms.Compose([ToTensor(),Normalize(mean=[ 98.0191, 111.8813, 122.6233], std=[52.0641, 51.9233, 54.6818])])
-    transform_train_l = transforms.Compose([ToTensor(),Normalize(mean=[ 98.0175, 111.8811, 122.6249], std=[55.3171, 55.3583, 58.0002])])
-    flickr_test_d = transforms.Compose([ToTensor(),Normalize(mean=[93.1886, 95.9895, 99.1945], std=[68.2044, 65.7365, 70.7221])])
-    flickr_test_l = transforms.Compose([ToTensor(),Normalize(mean=[93.1652, 95.9673, 99.1728], std=[70.0215, 67.7141, 72.6146])])
-    urban_test_d = transforms.Compose([ToTensor(),Normalize(mean=[106.9667, 112.6332, 116.5876], std=[58.1312, 56.5541, 61.5097])])
-    urban_test_l = transforms.Compose([ToTensor(),Normalize(mean=[106.9652, 112.6323, 116.5902], std=[60.7609, 59.4840, 64.1882])])
-    div_test_d = transforms.Compose([ToTensor(),Normalize(mean=[100.5379, 108.9736, 113.5428], std=[56.6489, 55.9354, 60.1483])])
-    div_test_l = transforms.Compose([ToTensor(),Normalize(mean=[100.5349, 108.9710, 113.5404], std=[59.7900, 59.2671, 63.2402])])
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
-    g_optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.999), eps=1e-8)
+    g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)
@@ -836,8 +826,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         list_no=0
         for input_,real_data in trainloader:
             if torch.cuda.is_available():
-                input_    = transform_train_d(input_).to(device)
-                real_data = transform_train_l(real_data).to(device)
+                input_    = input_.to(device)
+                real_data = real_data.to(device)
             fake_data = model(input_).to(device)
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
@@ -858,19 +848,19 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
-                local_batch, local_labels = urban_test_d(local_batch).to(device), urban_test_l(local_labels).to(device)
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
-                local_batch, local_labels = div_test_d(local_batch).to(device), div_test_l(local_labels).to(device)
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
-                local_batch, local_labels = flickr_test_d(local_batch).to(device), flickr_test_l(local_labels).to(device)
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
@@ -900,11 +890,11 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         Generator_Adver_Loss.append(sum(training_dis_loss_g)/len(training_dis_loss_g))
         
         print(len(test_loss_flickr),max(test_loss_flickr))
-        psnr_flickr.append(10*math.log10(4/(sum(test_loss_flickr)/len(test_loss_flickr))))
-        psnr_div.append(10*math.log10(4/(sum(test_loss_div)/len(test_loss_div))))
-        psnr_urban.append(10*math.log10(4/(sum(test_loss_urban)/len(test_loss_urban))))
+        psnr_flickr.append(10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        psnr_div.append(10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        psnr_urban.append(10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))
         train_rmse.append(sum(train_rec_rmse)/len(train_rec_rmse))
-        train_psnr.append(10*math.log10(4/train_rmse[-1]))
+        train_psnr.append(10*math.log10(255*255/train_rmse[-1]))
         with open(os.path.join(results,"PSNR_flickr.txt"), 'wb') as f:
              pickle.dump(psnr_flickr,f )
         with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
@@ -925,9 +915,9 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         print("Test loss for Flickr:",sum(test_loss_flickr)/len(test_loss_flickr),flush=True)
         print("Test loss for Div:",sum(test_loss_div)/len(test_loss_div),flush=True)
         print("Test loss for Urban:",sum(test_loss_urban)/len(test_loss_urban),flush=True)
-        print("PSNR for Flickr :", 10*math.log10(4/(sum(test_loss_flickr)/len(test_loss_flickr))))
-        print("PSNR for Div :", 10*math.log10(4/(sum(test_loss_div)/len(test_loss_div))))
-        print("PSNR for Urban100 :", 10*math.log10(4/(sum(test_loss_urban)/len(test_loss_urban))))  
+        print("PSNR for Flickr :", 10*math.log10(255*255/(sum(test_loss_flickr)/len(test_loss_flickr))))
+        print("PSNR for Div :", 10*math.log10(255*255/(sum(test_loss_div)/len(test_loss_div))))
+        print("PSNR for Urban100 :", 10*math.log10(255*255/(sum(test_loss_urban)/len(test_loss_urban))))  
         print("-----------------------------------------------------------------------------------------------------------")
     try:
         file = open(os.path.join(results,"GAN_train_loss.txt"), 'w+')
@@ -962,5 +952,4 @@ if __name__ == '__main__':
     print("Initialised Data Loader ....")
     train_network(trainloader, testloader_flickr,testloader_div,testloader_urban,grad_flow_flag)
     
-
 

@@ -21,9 +21,9 @@ class pre_process:
             processed_dir = "/home/harsh.shukla/SRCNN/SR_data_512/train"
         else:
             path = self.test_path
-            processed_input = "/home/harsh.shukla/SRCNN/SR_data_512/test/input"
-            processed_target = "/home/harsh.shukla/SRCNN/SR_data_512/test/target"
-            processed_dir = "/home/harsh.shukla/SRCNN/SR_data_512/test/"
+            processed_input = "/home/harsh.shukla/SRCNN/training_test_data/Manga/input"
+            processed_target = "/home/harsh.shukla/SRCNN/training_test_data/Manga/target"
+            processed_dir = "/home/harsh.shukla/SRCNN/training_test_data/Manga/"
         
         os.chdir(path)
         walker = list(os.walk(path))
@@ -40,14 +40,15 @@ class pre_process:
         for i in filenames:
             print(i)
             im = Image.open(i)
-            left = int(im.size[0]/2-1600/2)
-            upper = int(im.size[1]/2-1600/2)
-            right = left + 1600
-            lower = upper + 1600
-            im = im.crop((left, upper,right,lower))
-            im.save(os.path.join(processed_input, str(self.count) + '.png'))
-            im = im.resize((400,400))
-            im.save(os.path.join(processed_target, str(self.count)  + '.png'))
+#             left = int(im.size[0]/2-1600/2)
+#             upper = int(im.size[1]/2-1600/2)
+#             right = left + 1600
+#             lower = upper + 1600
+#             im = im.crop((left, upper,right,lower))
+            im = im.resize((4*int(im.size[0]/4),4*int(im.size[1]/4)))
+            im.save(os.path.join(processed_target, str(self.count) + '.png'))
+            im = im.resize((int(im.size[0]/4),int(im.size[1]/4)))
+            im.save(os.path.join(processed_input, str(self.count)  + '.png'))
             self.count+=1
 #             if i.split('.')[0][-1]== path[-1] :
 #                 im = im.resize((64,64))
@@ -61,7 +62,7 @@ class pre_process:
 
 ##Div 2k
 train_directory = "/scratch/harsh_cnn/train"
-test_directory = "/scratch/harsh_cnn/test"
+test_directory = "/home/harsh.shukla/SRCNN/test_Data/Manga109"
 
 ##Real SR
 # train_directory = "/home/harsh.shukla/SRCNN/RealSR (ICCV2019)/Nikon/Train/2"
