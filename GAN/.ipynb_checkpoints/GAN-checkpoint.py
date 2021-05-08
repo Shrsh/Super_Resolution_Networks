@@ -58,6 +58,7 @@ device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
 from prettytable import PrettyTable
 import torch.nn.init as init
+from vgg import vgg19
 
 
 #custom Initializer
@@ -302,8 +303,7 @@ def process_and_train_load_data():
 #     print("After Train_x")
     for i in train_xx:
         train_x.append(i)
-
-    
+       
 #     train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/train/y')
 #     for i in train_yy:
 #         train_y.append(i)
@@ -357,9 +357,7 @@ def process_and_train_load_data():
     data_test_urban=[]
     for input, target in zip(test_input, test_target):
         data_test_flickr.append([input, target])
-    
-    
-    
+
     test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
@@ -541,7 +539,8 @@ class DiscriminativeNet(torch.nn.Module):
     
 class VGGFeatureExtractor(nn.Module):
     def __init__(self,
-                 feature_layer=36,
+                 low_feature_layer=22,
+                 high_feature_layer = 36,
                  use_bn=False,
                  device=torch.device('cuda')):
         super(VGGFeatureExtractor, self).__init__()
@@ -549,12 +548,13 @@ class VGGFeatureExtractor(nn.Module):
             model = torchvision.models.vgg19_bn(pretrained=True)
         else:
             model = torchvision.models.vgg19(pretrained=True)
-        self.features = nn.Sequential(*list(model.features.children())[:(feature_layer + 1)])
+        self.features_low = nn.Sequential(*list(model.features.children())[:(low_feature_layer + 1)])
+        self.features_high = nn.Sequential(*list(model.features.children())[:(high_feature_layer + 1)])
         for param in self.parameters():
             param.requires_grad = False
 
     def forward(self, x):
-        return self.features(x)
+        return self.features_low(x), self.features_high(x)
     
 class SRSN_RRDB(nn.Module):
     def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2):
@@ -689,17 +689,17 @@ class ResidualInResidualDenseBlock(nn.Module):
 def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     
     optimizer.zero_grad()
-    prediction_real = discriminator(real_data.detach())
-    prediction_fake = discriminator(fake_data.detach())
+    prediction_real = discriminator(real_data.detach()).to(device)
+    prediction_fake = discriminator(fake_data.detach()).to(device)
     
     # 1. Train on Real Data
     truth_real=Variable(torch.ones(real_data.size(0), 1))-0.1
 #     truth_real=Variable(torch.Tensor(real_data.size(0), 1).fill_(0.9).type(dtype))
-    error_real = b_loss(prediction_real.to(device), truth_real.to(device))*0 
+    error_real = b_loss(prediction_real, truth_real.to(device)) 
     error_real.mean().backward(retain_graph=True)
 
     # 2. Train on Fake Data
-    error_fake = b_loss(prediction_fake .to(device), Variable(torch.zeros(real_data.size(0), 1)).to(device))*0
+    error_fake = b_loss(prediction_fake, Variable(torch.zeros(real_data.size(0), 1)).to(device))
     error_fake.mean().backward()
     optimizer.step()
 
@@ -710,25 +710,28 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
     optimizer.zero_grad()
     
-    lambda_ = 0.0
+    lambda_ = 0
     
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
     ## Adversarial Loss 
-    prediction = discriminator(fake_data)
+    prediction = discriminator(fake_data).to(device)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
-    ## Perceptual 
-    features_gt=vgg_features_high(real_data)
-    features_out=vgg_features_high(fake_data)
-    loss_perceptual=m_loss(features_gt, features_out)
-    total_loss = loss + lambda_*error + loss_perceptual
+    features_gt_low, features_gt_high=vgg_features_high(real_data)
+    features_out_low, features_out_high=vgg_features_high(fake_data)
+    
+    ## Perceptual High
+    loss_perceptual_low=m_loss(features_gt_low, features_out_low)
+    loss_perceptual_high=m_loss(features_gt_high, features_out_high)
+
+    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high
     total_loss.mean().backward()
     optimizer.step()
-    return loss,error,total_loss,loss_perceptual
+    return loss,error,total_loss,loss_perceptual_low
 
 
 
-def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=1):
+def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
     discriminator = DiscriminativeNet()
     model=SRSN_RRDB()
     model = nn.DataParallel(model, device_ids = device_ids)
@@ -736,11 +739,13 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     model = model.to(device)
     model.apply(weight_init)
     discriminator=discriminator.to(device)
-    vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
+#     vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
+    vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
     g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.5,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)
@@ -748,7 +753,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
 
     train_d=[]
     train_g = []
-    
+    best=0
     train_g_rec=[]
     train_g_dis=[]
     test=[]
@@ -775,6 +780,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     if not os.path.exists(checkpoints):
         os.makedirs(checkpoints)
     checkpoint_file = os.path.join(checkpoints,"check.pt")  
+    result_file = os.path.join(checkpoints,"result.pt")
     
     # Initialising directory for Network Debugging
     net_debug = os.path.join(results,"Debug")
@@ -783,7 +789,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     
    
     # load model if exists
-    if os.path.exists(checkpoint_file):
+    if os.path.exists(result_file):
         print("Loading from Previous Checkpoint...")
         checkpoint = torch.load(checkpoint_file)
         model.load_state_dict(checkpoint['generator_state_dict'])
@@ -805,6 +811,9 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         psnr_urban = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"Train.txt"), 'rb')      
         train_psnr = pickle.load(dbfile)  
+        
+        dbfile = open(os.path.join(results,"Best.txt"), 'rb')      
+        best = pickle.load(dbfile)
         
         dbfile = open(os.path.join(results,"Discriminator.txt"), 'rb')      
         Disriminator_Loss = pickle.load(dbfile)
@@ -865,12 +874,12 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
                 
-#         if debug == True:
-#             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-#             output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-#             label.save(os.path.join(results,str(epoch) + 'test_target' + '.png'))
-#             output.save(os.path.join(results,str(epoch) + 'test_output' + '.png'))
+        if debug == True:
+            label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
 
+
+        scheduler.step()
         ##Creating Checkpoints
         if epoch % 1 == 0:
             torch.save({
@@ -879,6 +888,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 'g_state_dict': g_optimizer.state_dict(),
                 'd_state_dict': d_optimizer.state_dict(),
                 }, checkpoint_file)
+            
+        
         print("Epoch :",epoch )
         print("Discriminator Loss :",sum(training_loss_d)/len(training_loss_d))
         print("Generator Reconstruction Loss :",sum(training_rec_loss_g)/len(training_rec_loss_g))
@@ -903,6 +914,20 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
              pickle.dump(psnr_urban,f )
         with open(os.path.join(results,"Train.txt"), 'wb') as f:
              pickle.dump(train_psnr,f )
+                
+        if best< psnr_flickr[-1]:
+            best= psnr_flickr[-1]
+            with open(os.path.join(results,"Best.txt"), 'wb') as f:
+              pickle.dump(best,f )
+            torch.save({
+                'generator_state_dict': model.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
+                'g_state_dict': g_optimizer.state_dict(),
+                'd_state_dict': d_optimizer.state_dict(),
+                }, result_file)
+                
+            label.save(os.path.join(results,str(epoch) + 'test_target' +str(best) +'.png'))
+            output.save(os.path.join(results,str(epoch) + 'test_output' + str(best)+'.png'))
        
         with open(os.path.join(results,"Discriminator.txt"), 'wb') as f:
              pickle.dump(Disriminator_Loss,f )
