@@ -218,29 +218,34 @@ def sobel(window_size):
 
 	return torch.Tensor(matx), torch.Tensor(maty)
 
-def create_window(window_size, channel):
-	windowx,windowy = sobel(window_size)
-	windowx,windowy= windowx.unsqueeze(0).unsqueeze(0), windowy.unsqueeze(0).unsqueeze(0)
-	windowx = torch.Tensor(windowx.expand(channel,1,window_size,window_size))
-	windowy = torch.Tensor(windowy.expand(channel,1,window_size,window_size))
-	# print windowx
-	#print windowy
 
-	return windowx,windowy
+def create_window(window_size, channel):
+    windowx,windowy=sobel(window_size)
+    windowx,windowy=windowx.unsqueeze(0).unsqueeze(0),windowy.unsqueeze(0).unsqueeze(0)
+#     print(windowx.shape)
+    windowx=torch.Tensor(windowx.expand(1,1,window_size,window_size))
+    windowy=torch.Tensor(windowy.expand(1,1,window_size,window_size))
+    return windowx,windowy
+
 
 def gradient(img, windowx, windowy, window_size, padding, channel):
-	if channel > 1 :		# do convolutions on each channel separately and then concatenate
-		gradx=torch.ones(img.shape)
-		grady=torch.ones(img.shape)
-		for i in range(channel):
-			gradx[:,i,:,:]=F.conv2d(img[:,i,:,:].unsqueeze(0), windowx, padding=padding,groups=1).squeeze(0)   #fix the padding according to the kernel size
-			grady[:,i,:,:]=F.conv2d(img[:,i,:,:].unsqueeze(0), windowy, padding=padding,groups=1).squeeze(0)
+    if channel>1:
+        gradx=torch.ones(img.shape)
+        grady=torch.ones(img.shape)
+#         print(windowx.shape)
+#         print(gradx.shape)
+        img=img.unsqueeze(2)
+#         img=torch.Tensor(img.expand(16,channel,1,512,512))
+#         print(img.shape)
+#         print(img[:,0,:,:,:].shape)
+        for i in range(channel):
+            z=F.conv2d(img[:,i,:,:,:],windowx,padding=padding,groups=1)
+            print("z : ",z.shape)
+            gradx[:,i,:,:]=F.conv2d(img[:,i,:,:,:],windowx,padding=padding,groups=1).squeeze(1)
+            grady[:,i,:,:]=F.conv2d(img[:,i,:,:,:],windowy,padding=padding,groups=1).squeeze(1)
+    return gradx,grady
 
-	else:
-		gradx = F.conv2d(img, windowx, padding=padding,groups=1)
-		grady = F.conv2d(img, windowy, padding=padding,groups=1)
 
-	return gradx, grady
 
 class SobelGrad(torch.nn.Module):
 	def __init__(self, window_size = 3, padding= 1):
@@ -256,9 +261,11 @@ class SobelGrad(torch.nn.Module):
 			self.windowx = self.windowx.cuda(pred.get_device())
 			self.windowx = self.windowx.type_as(pred)
 			self.windowy = self.windowy.cuda(pred.get_device())
-			self.windowy = self.windowy.type_as(pred)
-			
+			self.windowy = self.windowy.type_as(pred)	
+            
 		pred_gradx,pred_grady=gradient(pred,self.windowx,self.windowy,self.window_size, self.padding,channel)
 		label_gradx,label_grady=gradient(label,self.windowx,self.windowy,self.window_size,self.padding, channel)
-
 		return pred_gradx,pred_grady,label_gradx,label_grady
+    
+    
+# https://gist.github.com/sagniklp/a8f7d7b07ef318f339d11379a42f9d4a

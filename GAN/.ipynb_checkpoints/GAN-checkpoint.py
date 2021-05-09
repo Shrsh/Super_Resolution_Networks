@@ -48,10 +48,11 @@ device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
 from prettytable import PrettyTable
 import torch.nn.init as init
-from vgg import vgg19
+# from vgg import vgg19
 from models import SRSN_RRDB, DiscriminativeNet, VGGFeatureExtractor
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
+import kornia
 
 
 ####### Initialisation 
@@ -341,17 +342,22 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
     loss_perceptual_low=m_loss(features_gt_low, features_out_low)
     loss_perceptual_high=m_loss(features_gt_high, features_out_high)
     
-#     ##Image Gradient Loss
-#     sobel = SobelGrad()
-#     pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data, real_data)
-#     pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_gradx,2))
-#     label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
-#     img_grad = m_loss(pred_g,label_g)
+    ##Image Gradient Loss
+#     grad = kornia.SpatialGradient()(fake_data)
+    
+#     img_grad = m_loss(grad(pred_g), grad(label_g))
+#     print(fake_data.shape)
+#     print(real_data.shape)
+    sobel = SobelGrad()
+    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data, real_data)
+    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_gradx,2))
+    label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
+    img_grad = m_loss(pred_g,label_g)
 
-    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high
+    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
     total_loss.mean().backward()
     optimizer.step()
-    return loss,error,total_loss,loss_perceptual_low
+    return loss,error,total_loss,img_grad
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
