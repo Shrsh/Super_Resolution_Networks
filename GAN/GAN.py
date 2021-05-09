@@ -723,12 +723,38 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
     ## Perceptual High
     loss_perceptual_low=m_loss(features_gt_low, features_out_low)
     loss_perceptual_high=m_loss(features_gt_high, features_out_high)
+    
+    ##Image Gradient Loss
+    img_grad = m_loss(calculate_image_gradient(fake_data, real_data))
 
-    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high
+    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
     total_loss.mean().backward()
     optimizer.step()
-    return loss,error,total_loss,loss_perceptual_low
+    return loss,error,total_loss,img_grad
 
+def calculate_image_gradient(x,y):
+    sobel_x = torch.Tensor([[1, 0, -1],
+    [2, 0, -2],
+    [1, 0, -1]])
+    
+    sobel_y = torch.Tensor([[1, 2, 1],
+    [0, 0, 0],
+    [-1, -2, -1]])
+    sobel_x = sobel_x.view((1,1,3,3))
+    sobel_y = sobel_y.view((1,1,3,3))
+  
+    #on network output
+    G_x = F.conv2d(x, sobel_x)   
+    G_y = F.conv2d(x, sobel_y)
+    x = torch.sqrt(torch.pow(G_x,2)+ torch.pow(G_y,2))
+    
+    #on ground truth
+    G_x = F.conv2d(y, sobel_x)   
+    G_y = F.conv2d(y, sobel_y)
+    y = torch.sqrt(torch.pow(G_x,2)+ torch.pow(G_y,2))
+    
+    return x,y
+    
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
