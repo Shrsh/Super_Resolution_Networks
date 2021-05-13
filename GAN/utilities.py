@@ -200,14 +200,14 @@ def sobel(window_size):
 			row.append(gy_ij)
 		maty.append(row)
 
-	# matx=[[-3, 0,+3],
-	# 	  [-10, 0 ,+10],
-	# 	  [-3, 0,+3]]
-	# maty=[[-3, -10,-3],
-	# 	  [0, 0 ,0],
-	# 	  [3, 10,3]]
+# 	matx=[[-1, 0,1],
+# 		  [-2, 0 ,2],
+# 		  [-1, 0,1]]
+# 	maty=[[-1, -2,-1],
+# 		  [0, 0 ,0],
+# 		  [1, 2,1]]
 	if window_size==3:
-		mult=2
+		mult=0.3
 	elif window_size==5:
 		mult=20
 	elif window_size==7:
@@ -232,20 +232,25 @@ def gradient(img, windowx, windowy, window_size, padding, channel):
     if channel>1:
         gradx=torch.ones(img.shape)
         grady=torch.ones(img.shape)
-#         print(windowx.shape)
-#         print(gradx.shape)
         img=img.unsqueeze(2)
-#         img=torch.Tensor(img.expand(16,channel,1,512,512))
-#         print(img.shape)
-#         print(img[:,0,:,:,:].shape)
+
         for i in range(channel):
-            z=F.conv2d(img[:,i,:,:,:],windowx,padding=padding,groups=1)
-            print("z : ",z.shape)
+
             gradx[:,i,:,:]=F.conv2d(img[:,i,:,:,:],windowx,padding=padding,groups=1).squeeze(1)
             grady[:,i,:,:]=F.conv2d(img[:,i,:,:,:],windowy,padding=padding,groups=1).squeeze(1)
     return gradx,grady
 
 
+# x = torch.randn([1, 256, 3, 3, 3])
+# sobel = [[1, 2, 1], [0, 0, 0], [-1, -2, -1]]
+# depth = x.size()[1]
+# channels = x.size()[2]
+# sobel_kernel = torch.tensor(sobel, dtype=torch.float32).unsqueeze(0).expand(depth, 1, channels, 3, 3)
+# print(sobel_kernel.shape)
+# > torch.Size([256, 1, 3, 3, 3])
+# malignacy = F.conv3d(x, sobel_kernel, stride=1, padding=1, groups=x.size(1))
+# print(malignacy.shape)
+# > torch.Size([1, 256, 3, 3, 3])
 
 class SobelGrad(torch.nn.Module):
 	def __init__(self, window_size = 3, padding= 1):

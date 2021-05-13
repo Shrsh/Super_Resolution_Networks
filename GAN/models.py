@@ -5,18 +5,9 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 from torchvision.utils import save_image
-# from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import numpy as np
-# from sklearn import svm
-# import sklearn.model_selection
-# import sklearn.metrics
-# from sklearn.metrics import accuracy_score
-# from sklearn.metrics import confusion_matrix
-# from sklearn.metrics import precision_recall_fscore_support
-# from sklearn.ensemble import VotingClassifier
 import math 
-# import tensorflow as tf
 from torch.autograd import Variable
 
 import os
@@ -173,7 +164,8 @@ class SRSN_RRDB(nn.Module):
         self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
         self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
         
-        self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
         self.conv5=torch.nn.Conv2d(64*6, 64, 1, 1, 0)

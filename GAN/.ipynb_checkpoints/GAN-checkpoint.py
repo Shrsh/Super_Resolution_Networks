@@ -327,7 +327,8 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 
 def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
     optimizer.zero_grad()
-    
+    loss_perceptual_low=0
+    loss_perceptual_high=0
     lambda_ = 0
     
     ##Reconstruction loss
@@ -335,25 +336,23 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
     ## Adversarial Loss 
     prediction = discriminator(fake_data).to(device)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
-    features_gt_low, features_gt_high=vgg_features_high(real_data)
-    features_out_low, features_out_high=vgg_features_high(fake_data)
+#     features_gt_low, features_gt_high=vgg_features_high(real_data)
+#     features_out_low, features_out_high=vgg_features_high(fake_data)
     
     ## Perceptual High
-    loss_perceptual_low=m_loss(features_gt_low, features_out_low)
-    loss_perceptual_high=m_loss(features_gt_high, features_out_high)
+#     loss_perceptual_low=m_loss(features_gt_low, features_out_low)
+#     loss_perceptual_high=m_loss(features_gt_high, features_out_high)
     
     ##Image Gradient Loss
-#     grad = kornia.SpatialGradient()(fake_data)
-    
-#     img_grad = m_loss(grad(pred_g), grad(label_g))
-#     print(fake_data.shape)
-#     print(real_data.shape)
+
     sobel = SobelGrad()
     pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data, real_data)
-    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_gradx,2))
+
+    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
     label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
     img_grad = m_loss(pred_g,label_g)
 
+    
     total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
     total_loss.mean().backward()
     optimizer.step()
@@ -374,7 +373,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
     g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
-    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.5,verbose=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)
