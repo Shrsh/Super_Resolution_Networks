@@ -42,6 +42,12 @@ from IPython.display import clear_output
 import argparse 
 import pickle as pkl
 
+use_cuda = torch.cuda.is_available()
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+device_ids = [i for i in range(torch.cuda.device_count())]
+device = 'cuda' if use_cuda else 'cpu'
+torch.backends.cudnn.benchmark = True
+
 
 class DiscriminativeNet(torch.nn.Module):
     
@@ -166,6 +172,10 @@ class SRSN_RRDB(nn.Module):
         
 #         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
+        self.up_image = torch.nn.ConvTranspose2d(3,3,stride=4,kernel_size = 4)
+#         self.conv2_1=torch.nn.Conv2d(64, 16*16, 1, 1, 0)
+#         self.up = torch.nn.PixelShuffle(4)
+        
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
         self.conv5=torch.nn.Conv2d(64*6, 64, 1, 1, 0)
@@ -200,12 +210,18 @@ class SRSN_RRDB(nn.Module):
         out6=torch.cat((out,out1,out2,out3,out4,out5), dim=1)
         out6=self.conv5(out6)
         out6= out6.mul(self.scale_ratio) + LR_feat
+#         print("Before Increasing channels:",out6.shape)
+#         out6=self.conv2_1(out6)
+#         out6=self.conv2_2(out6)
+#         print("After Increasing channels:",out6.shape)
         out6 = self.up(out6)
+#         print("After upsampling:",out6.shape)
         #LR_feat = self.resnet(out3)
         SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
         SR =self.conv4(SR)
+        
         # print(SR.shape)
-        return SR   
+        return torch.add(SR, self.up_image(LR))   
     
     
 class ResidualDenseBlock(nn.Module):
@@ -253,6 +269,61 @@ class ResidualDenseBlock(nn.Module):
         conv5 = self.conv5(torch.cat((input, conv1, conv2, conv3, conv4), 1))
 
         return conv5.mul(self.scale_ratio) + input
+    
+    
+class SRFBN(nn.Module):
+    def __init__(self, in_channels, out_channels, num_features, num_steps, num_groups, upscale_factor, act_type = 'prelu', norm_type = None):
+        super(SRFBN, self).__init__()
+
+
+        self.sub_mean = MeanShift(rgb_mean, rgb_std)
+
+        # LR feature extraction block
+        self.conv_in = ConvBlock(in_channels, 4*num_features,
+                                 kernel_size=3,
+                                 act_type=act_type, norm_type=norm_type)
+        self.feat_in = ConvBlock(4*num_features, num_features,
+                                 kernel_size=1,
+                                 act_type=act_type, norm_type=norm_type)
+
+        # basic block
+        self.block = FeedbackBlock(num_features, num_groups, upscale_factor, act_type, norm_type)
+
+        # reconstruction block
+		# uncomment for pytorch 0.4.0
+        # self.upsample = nn.Upsample(scale_factor=upscale_factor, mode='bilinear')
+
+        self.out = DeconvBlock(num_features, num_features,
+                               kernel_size=kernel_size, stride=stride, padding=padding,
+                               act_type='prelu', norm_type=norm_type)
+        self.conv_out = ConvBlock(num_features, out_channels,
+                                  kernel_size=3,
+                                  act_type=None, norm_type=norm_type)
+
+        self.add_mean = MeanShift(rgb_mean, rgb_std, 1)
+
+    def forward(self, x):
+        self._reset_state()
+
+        x = self.sub_mean(x)
+		# uncomment for pytorch 0.4.0
+        # inter_res = self.upsample(x)
+		
+		# comment for pytorch 0.4.0
+        inter_res = nn.functional.interpolate(x, scale_factor=self.upscale_factor, mode='bilinear', align_corners=False)
+        
+
+        outs = []
+        for _ in range(self.num_steps):
+            h = self.block(x)
+            h = torch.add(inter_res, self.conv_out(self.out(h)))
+            h = self.add_mean(h)
+            outs.append(h)
+
+        return outs # return output of every timesteps
+
+    def _reset_state(self):
+        self.block.reset_state()
     
 class ResidualInResidualDenseBlock(nn.Module):
     r"""The residual block structure of traditional ESRGAN and Dense model is defined"""

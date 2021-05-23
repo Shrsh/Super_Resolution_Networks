@@ -26,6 +26,7 @@ warnings.filterwarnings("ignore")
 from IPython.display import clear_output
 import argparse 
 import pickle as pkl
+import math
 
 use_cuda = torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
@@ -49,12 +50,15 @@ def load_images_from_folder(folder):
 
 def process_and_train_load_data():
     test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/test/x')
+#     test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/x')
+
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
     test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/test/y')
+#     test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -64,7 +68,7 @@ def process_and_train_load_data():
 
     for input, target in zip(test_input, test_target):
         data_test.append([input, target])
-    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=32, shuffle=True)
+    testloader=torch.utils.data.DataLoader(dataset=data_test, batch_size=1, shuffle=False)
     
     return testloader
 
@@ -263,9 +267,13 @@ class ResidualInResidualDenseBlock(nn.Module):
     
 def prepare_test_report(testloader): 
     
-    cp_addr = ['/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt','/home/harsh.shukla/SRCNN/Weights/L1_Perceptual_22_last_2814.pt']
+    cp_addr = ['/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt']
     test_results = "/home/harsh.shukla/SRCNN/results"
+    generate_data = "/home/harsh.shukla/SRCNN/SR_data_512/Div"
+    generate_data_x = "/home/harsh.shukla/SRCNN/SR_data_512/Div/x"
+    generate_data_y = "/home/harsh.shukla/SRCNN/SR_data_512/Div/y"
     
+    trainTransform  = torchvision.transforms.Compose([torchvision.transforms.Grayscale(num_output_channels=1)])
     
     discriminator = DiscriminativeNet()
     model=SRSN_RRDB()
@@ -287,10 +295,23 @@ def prepare_test_report(testloader):
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)
     criterion = nn.DataParallel(nn.SmoothL1Loss(),device_ids = device_ids).to(device)
     
+    up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+    
     if not os.path.exists(test_results):
         os.makedirs(test_results)
+        
+    if not os.path.exists(generate_data): 
+        os.makedirs(generate_data)
+        
+    if not os.path.exists(generate_data_x): 
+        os.makedirs(generate_data_x) 
+        
+    if not os.path.exists(generate_data_y): 
+        os.makedirs(generate_data_y)
     
     for i in range(len(cp_addr)): 
+        Loss_list=[]
+        bi_Loss_list = []
         results_ = os.path.join(test_results,str(i))
         if not os.path.exists(results_): 
             os.makedirs(results_)
@@ -309,12 +330,33 @@ def prepare_test_report(testloader):
         with torch.no_grad():
             for local_batch, local_labels in testloader:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output = model(local_batch).to(device)
+                output = model(local_batch).to(device)       
+                bi_output = up(local_batch).to(device)
                 local_labels.require_grad = False
-            print(Mse_loss(output, local_labels).mean().item())
-            for j in range(local_batch.size(0)):
-                output_=im.fromarray(np.uint8(np.moveaxis(output[j].cpu().detach().numpy(),0,-1))).convert('RGB')
-                output_.save(os.path.join(results_,str(j) +'.png'))
+                Loss_list.append(Mse_loss(trainTransform(torch.reshape(output, (3,1600, 1600))), trainTransform(torch.reshape(local_labels, (3,1600, 1600)))).mean().item())
+                mse=Loss_list[-1]
+                bi_Loss_list.append(Mse_loss(trainTransform(torch.reshape(bi_output, (3,1600, 1600))), trainTransform(torch.reshape(local_labels, (3,1600, 1600)))).mean().item())
+#                 print("PSNR Bicubic :", 10*math.log10(255*255/bi_Loss_list[-1]))
+#                 print("MSE : ",mse)
+#                 print("PSNR :", 10*math.log10(255*255/mse))
+                if 10*math.log10(255*255/Loss_list[-1])-10*math.log10(255*255/bi_Loss_list[-1]) > 3: 
+                    for j in range(local_batch.size(0)):
+                        local_batch=im.fromarray(np.uint8(np.moveaxis(local_batch[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+                        local_batch.save(os.path.join(generate_data_x,str(10*math.log10(255*255/mse)) + '.png'))
+                        local_labels=im.fromarray(np.uint8(np.moveaxis(local_labels[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+                        local_labels.save(os.path.join(generate_data_y,str(10*math.log10(255*255/mse)) + '.png'))
+                        output_=im.fromarray(np.uint8(np.moveaxis(output[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+                        output_.save(os.path.join(results_,str(10*math.log10(255*255/mse)) +'.png'))
+                        
+                        
+                else:
+                    Loss_list.pop()
+                    bi_Loss_list.pop()
+            print("Average PSNR for bicubic and network ...")
+            print("PSNR Bicubic :", 10*math.log10(255*255/(sum(bi_Loss_list)/len(bi_Loss_list))))
+            print("MSE : ",sum(Loss_list)/len(Loss_list))
+            print("PSNR :", 10*math.log10(255*255/(sum(Loss_list)/len(Loss_list))))
+
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -42,18 +43,17 @@ import argparse
 import pickle as pkl
 
 use_cuda = torch.cuda.is_available()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
 torch.backends.cudnn.benchmark = True
 from prettytable import PrettyTable
 import torch.nn.init as init
 # from vgg import vgg19
-from models import SRSN_RRDB
+from models import SRSN_RRDB, DiscriminativeNet, VGGFeatureExtractor
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
 import kornia
-from models_feedback import DiscriminativeNet, VGGFeatureExtractor,SRFBN
 
 
 ####### Initialisation 
@@ -261,28 +261,37 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_flickr.append([input, target])
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/x')
     test_input=np.asarray(test)
+#     print("Urban:",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Urban:",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Urban:",test_input.shape)
     test_input = test_input.astype(np.float32)
+#     print("Urban:",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
+    
 
     for input, target in zip(test_input, test_target):
         data_test_div.append([input, target])
         
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/x')
     test_input=np.asarray(test)
+#     print("Div : ",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Div : ",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Div : ",test_input.shape)
     test_input = test_input.astype(np.float32)
+#     print("Div : ",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -292,10 +301,10 @@ def process_and_train_load_data():
         data_test_urban.append([input, target])
         
     
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=4, shuffle=True)
-    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=4, shuffle=True)
-    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=4, shuffle=True)
-    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=4, shuffle=True)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=16, shuffle=False)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=16, shuffle=False)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=15, shuffle=False)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=8, shuffle=False)
     
 #     calculate_mean_std_dataset(trainloader)
 #     calculate_mean_std_dataset(testloader_flickr)
@@ -326,22 +335,14 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 
 
 
-def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
+def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
     optimizer.zero_grad()
     loss_perceptual_low=0
     loss_perceptual_high=0
     lambda_ = 0
-    loss1=0
-    ##Reconstruction loss for feedback
-    up=model_up(x)
-    output=model(x,up)
-    for i in range (len(output)):
-        loss1+=m_loss(output[i].to(device), real_data)
-    loss=loss1
     
     ##Reconstruction loss
-#     loss=m_loss(fake_data, real_data)
-    
+    loss=m_loss(fake_data, real_data)
     ## Adversarial Loss 
     prediction = discriminator(fake_data).to(device)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
@@ -355,7 +356,7 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
     ##Image Gradient Loss
 
     sobel = SobelGrad()
-    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data.to(device), real_data.to(device))
+    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data, real_data)
 
     pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
     label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
@@ -363,23 +364,15 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
 
     
     total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
-#     total_loss.mean().backward()
-#     optimizer.step()
+    total_loss.mean().backward()
+    optimizer.step()
     return loss,error,total_loss,img_grad
+
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
     discriminator = DiscriminativeNet()
-    
-    model_up=SRSN_RRDB()
-    model_up = nn.DataParallel(model_up, device_ids = device_ids)
-    model_up = model_up.to(device)
-    checkpoint_file='/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt'
-    checkpoint = torch.load(checkpoint_file)
-    model_up.load_state_dict(checkpoint['generator_state_dict'])
-    model_up.eval()
-    
-    model=SRFBN(4)
+    model=SRSN_RRDB()
     model = nn.DataParallel(model, device_ids = device_ids)
     discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
     model = model.to(device)
@@ -391,7 +384,6 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
     g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
-
     scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
@@ -434,10 +426,10 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     if not os.path.exists(net_debug):
         os.makedirs(net_debug)
     
-    
    
     # load model if exists
     if os.path.exists(result_file):
+#         checkpoint_file1='/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt'
         print("Loading from Previous Checkpoint...")
         checkpoint = torch.load(checkpoint_file)
         model.load_state_dict(checkpoint['generator_state_dict'])
@@ -455,13 +447,13 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         psnr_flickr = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"PSNR_div.txt"), 'rb')      
         psnr_div = pickle.load(dbfile)
-        dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
+        dbfile = open(os.path.join(results,"PSNR_urban.txt"), 'rb')      
         psnr_urban = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"Train.txt"), 'rb')      
         train_psnr = pickle.load(dbfile)  
         
-        dbfile = open(os.path.join(results,"Best.txt"), 'rb')      
-        best = pickle.load(dbfile)
+#         dbfile = open(os.path.join(results,"Best.txt"), 'rb')      
+#         best = pickle.load(dbfile)
         
         dbfile = open(os.path.join(results,"Discriminator.txt"), 'rb')      
         Disriminator_Loss = pickle.load(dbfile)
@@ -484,15 +476,13 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         for input_,real_data in trainloader:
             if torch.cuda.is_available():
                 input_    = input_.to(device)
-                real_data = real_data
-            up=model_up(input_)
-            fake_data = model(input_,up)
-            fake_data=fake_data[-1]
+                real_data = real_data.to(device)
+            fake_data = model(input_).to(device)
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.mean().item())
                 count = 0
-            g_rec_error,g_dis_error,g_error,l_percp = train_generator(model_up,input_,model,g_optimizer, fake_data, real_data, discriminator, Bce_loss, criterion,vgg_features_high)
+            g_rec_error,g_dis_error,g_error,l_percp = train_generator(model,g_optimizer, fake_data, real_data, discriminator, Bce_loss, criterion,vgg_features_high)
             training_rec_loss_g.append(g_rec_error.mean().item())
             training_dis_loss_g.append(g_dis_error.mean().item())
             training_loss_g.append(g_error.mean().item())
@@ -508,24 +498,19 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
+                output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
+                output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
-                
-        
+                output = model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
                 
@@ -565,12 +550,12 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
              pickle.dump(psnr_flickr,f )
         with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
              pickle.dump(psnr_div,f )
-        with open(os.path.join(results,"PSNR_bsd.txt"), 'wb') as f:
+        with open(os.path.join(results,"PSNR_urban.txt"), 'wb') as f:
              pickle.dump(psnr_urban,f )
         with open(os.path.join(results,"Train.txt"), 'wb') as f:
              pickle.dump(train_psnr,f )
                 
-        if best< psnr_flickr[-1]:
+        if best< psnr_div[-1]:
             best= psnr_flickr[-1]
             with open(os.path.join(results,"Best.txt"), 'wb') as f:
               pickle.dump(best,f )
@@ -581,8 +566,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 'd_state_dict': d_optimizer.state_dict(),
                 }, result_file)
                 
-            label.save(os.path.join(results,str(epoch) + 'test_target' +str(best) +'.png'))
-            output.save(os.path.join(results,str(epoch) + 'test_output' + str(best)+'.png'))
+#             label.save(os.path.join(results,str(epoch) + 'test_target' +str(best) +'.png'))
+#             output.save(os.path.join(results,str(epoch) + 'test_output' + str(best)+'.png'))
        
         with open(os.path.join(results,"Discriminator.txt"), 'wb') as f:
              pickle.dump(Disriminator_Loss,f )
@@ -632,4 +617,3 @@ if __name__ == '__main__':
     print("Initialised Data Loader ....")
     train_network(trainloader, testloader_flickr,testloader_div,testloader_urban,grad_flow_flag)
     
-
