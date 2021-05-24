@@ -53,7 +53,7 @@ from models import SRSN_RRDB
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
 import kornia
-from models_feedback import DiscriminativeNet, VGGFeatureExtractor,SRFBN
+from models_feedback import DiscriminativeNet, VGGFeatureExtractor,SRFBN,SRSN_RRDB1
 
 
 ####### Initialisation 
@@ -261,28 +261,37 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_flickr.append([input, target])
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/x')
     test_input=np.asarray(test)
+#     print("Urban:",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Urban:",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Urban:",test_input.shape)
     test_input = test_input.astype(np.float32)
+#     print("Urban:",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/training_test_data/Div2K_data/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
     test_target = test_target.astype(np.float32)
+    
 
     for input, target in zip(test_input, test_target):
         data_test_div.append([input, target])
         
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/x')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/x')
     test_input=np.asarray(test)
+#     print("Div : ",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Div : ",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
+#     print("Div : ",test_input.shape)
     test_input = test_input.astype(np.float32)
+#     print("Div : ",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_256/test/y')
+    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -292,15 +301,10 @@ def process_and_train_load_data():
         data_test_urban.append([input, target])
         
     
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=4, shuffle=True)
-    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=4, shuffle=True)
-    testloader_div=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=4, shuffle=True)
-    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=4, shuffle=True)
-    
-#     calculate_mean_std_dataset(trainloader)
-#     calculate_mean_std_dataset(testloader_flickr)
-#     calculate_mean_std_dataset(testloader_div)
-#     calculate_mean_std_dataset(testloader_urban)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=16, shuffle=False)
+    testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=16, shuffle=False)
+    testloader_urban=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=15, shuffle=False)
+    testloader_div=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=8, shuffle=False)
     
     return trainloader, testloader_flickr,testloader_div,testloader_urban
     
@@ -333,14 +337,14 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
     lambda_ = 0
     loss1=0
     ##Reconstruction loss for feedback
-    up=model_up(x)
-    output=model(x,up)
-    for i in range (len(output)):
-        loss1+=m_loss(output[i].to(device), real_data)
-    loss=loss1
+#     up=model_up(x)
+#     output=model(x,up)
+#     for i in range (len(output)):
+#         loss1+=m_loss(output[i].to(device), real_data)
+#     loss=loss1
     
-    ##Reconstruction loss
-#     loss=m_loss(fake_data, real_data)
+    #Reconstruction loss
+    loss=m_loss(fake_data, real_data)
     
     ## Adversarial Loss 
     prediction = discriminator(fake_data).to(device)
@@ -363,15 +367,15 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
 
     
     total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
-#     total_loss.mean().backward()
-#     optimizer.step()
+    total_loss.mean().backward()
+    optimizer.step()
     return loss,error,total_loss,img_grad
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
     discriminator = DiscriminativeNet()
     
-    model_up=SRSN_RRDB()
+    model_up=SRSN_RRDB1()
     model_up = nn.DataParallel(model_up, device_ids = device_ids)
     model_up = model_up.to(device)
     checkpoint_file='/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt'
@@ -379,7 +383,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     model_up.load_state_dict(checkpoint['generator_state_dict'])
     model_up.eval()
     
-    model=SRFBN(4)
+    model=SRFBN()
     model = nn.DataParallel(model, device_ids = device_ids)
     discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
     model = model.to(device)
@@ -455,7 +459,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         psnr_flickr = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"PSNR_div.txt"), 'rb')      
         psnr_div = pickle.load(dbfile)
-        dbfile = open(os.path.join(results,"PSNR_bsd.txt"), 'rb')      
+        dbfile = open(os.path.join(results,"PSNR_urban.txt"), 'rb')      
         psnr_urban = pickle.load(dbfile)
         dbfile = open(os.path.join(results,"Train.txt"), 'rb')      
         train_psnr = pickle.load(dbfile)  
@@ -487,11 +491,11 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 real_data = real_data
             up=model_up(input_)
             fake_data = model(input_,up)
-            fake_data=fake_data[-1]
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.mean().item())
                 count = 0
+            
             g_rec_error,g_dis_error,g_error,l_percp = train_generator(model_up,input_,model,g_optimizer, fake_data, real_data, discriminator, Bce_loss, criterion,vgg_features_high)
             training_rec_loss_g.append(g_rec_error.mean().item())
             training_dis_loss_g.append(g_dis_error.mean().item())
@@ -509,21 +513,21 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
+                output = model(local_batch,up).to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
+                output = model(local_batch,up).to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 up=model_up(local_batch)
-                output = model(local_batch,up)[-1].to(device)
+                output = model(local_batch,up).to(device)
                 
         
                 local_labels.require_grad = False
@@ -565,7 +569,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
              pickle.dump(psnr_flickr,f )
         with open(os.path.join(results,"PSNR_div.txt"), 'wb') as f:
              pickle.dump(psnr_div,f )
-        with open(os.path.join(results,"PSNR_bsd.txt"), 'wb') as f:
+        with open(os.path.join(results,"PSNR_urban.txt"), 'wb') as f:
              pickle.dump(psnr_urban,f )
         with open(os.path.join(results,"Train.txt"), 'wb') as f:
              pickle.dump(train_psnr,f )

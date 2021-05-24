@@ -170,9 +170,9 @@ class SRSN_RRDB(nn.Module):
         self.RDB5 = ResidualDenseBlock(64, 64, 0.2)
         self.RDB6 = ResidualDenseBlock(64, 64, 0.2)
         
-#         self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.up_image = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
-        self.up_image = torch.nn.ConvTranspose2d(3,3,stride=4,kernel_size = 4)
+#         self.up_image = torch.nn.ConvTranspose2d(3,3,stride=4,kernel_size = 4)
 #         self.conv2_1=torch.nn.Conv2d(64, 16*16, 1, 1, 0)
 #         self.up = torch.nn.PixelShuffle(4)
         
@@ -219,9 +219,11 @@ class SRSN_RRDB(nn.Module):
         #LR_feat = self.resnet(out3)
         SR=F.leaky_relu(self.conv3(out6),negative_slope=0.2)
         SR =self.conv4(SR)
+        return SR
         
         # print(SR.shape)
-        return torch.add(SR, self.up_image(LR))   
+#         return torch.add(SR, self.up_image(LR)), SR, self.up_image(LR)   
+
     
     
 class ResidualDenseBlock(nn.Module):

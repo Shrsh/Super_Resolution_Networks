@@ -452,8 +452,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         dbfile = open(os.path.join(results,"Train.txt"), 'rb')      
         train_psnr = pickle.load(dbfile)  
         
-#         dbfile = open(os.path.join(results,"Best.txt"), 'rb')      
-#         best = pickle.load(dbfile)
+        dbfile = open(os.path.join(results,"Best.txt"), 'rb')      
+        best = pickle.load(dbfile)
         
         dbfile = open(os.path.join(results,"Discriminator.txt"), 'rb')      
         Disriminator_Loss = pickle.load(dbfile)
@@ -477,7 +477,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             if torch.cuda.is_available():
                 input_    = input_.to(device)
                 real_data = real_data.to(device)
-            fake_data = model(input_).to(device)
+            fake_data,_,__ = model(input_)
+            fake_data.to(device)
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.mean().item())
@@ -498,25 +499,33 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output = model(local_batch).to(device)
+                output,_,__ = model(local_batch)
+                output = output.to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output = model(local_batch).to(device)
+                output,residual,up = model(local_batch)
+                output = output.to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output = model(local_batch).to(device)
+                output,_,__ = model(local_batch)
+                output = output.to(device)
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
                 
         if debug == True:
             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
             output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+            res = im.fromarray(np.uint8(np.moveaxis(residual[2].cpu().detach().numpy(),0,-1))).convert('RGB')
+            up_ = im.fromarray(np.uint8(np.moveaxis(up[2].cpu().detach().numpy(),0,-1))).convert('RGB')
+           
+
+
 
 
         scheduler.step()
@@ -565,7 +574,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 'g_state_dict': g_optimizer.state_dict(),
                 'd_state_dict': d_optimizer.state_dict(),
                 }, result_file)
-                
+            res.save(os.path.join(results,str(epoch) + 'residual' +str(best) +'.png'))
+            up_.save(os.path.join(results,str(epoch) + 'upsampled' +str(best) +'.png'))
 #             label.save(os.path.join(results,str(epoch) + 'test_target' +str(best) +'.png'))
 #             output.save(os.path.join(results,str(epoch) + 'test_output' + str(best)+'.png'))
        

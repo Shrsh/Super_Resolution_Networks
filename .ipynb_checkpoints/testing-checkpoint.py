@@ -333,20 +333,21 @@ def prepare_test_report(testloader):
                 output = model(local_batch).to(device)       
                 bi_output = up(local_batch).to(device)
                 local_labels.require_grad = False
-                Loss_list.append(Mse_loss(trainTransform(torch.reshape(output, (3,1600, 1600))), trainTransform(torch.reshape(local_labels, (3,1600, 1600)))).mean().item())
+                Loss_list.append(Mse_loss(trainTransform(torch.reshape(output, (3,768, 768))), trainTransform(torch.reshape(local_labels, (3,768, 768)))).mean().item())
                 mse=Loss_list[-1]
-                bi_Loss_list.append(Mse_loss(trainTransform(torch.reshape(bi_output, (3,1600, 1600))), trainTransform(torch.reshape(local_labels, (3,1600, 1600)))).mean().item())
+                bi_Loss_list.append(Mse_loss(trainTransform(torch.reshape(bi_output, (3,768, 768))), trainTransform(torch.reshape(local_labels, (3,768, 768)))).mean().item())
 #                 print("PSNR Bicubic :", 10*math.log10(255*255/bi_Loss_list[-1]))
 #                 print("MSE : ",mse)
 #                 print("PSNR :", 10*math.log10(255*255/mse))
                 if 10*math.log10(255*255/Loss_list[-1])-10*math.log10(255*255/bi_Loss_list[-1]) > 3: 
                     for j in range(local_batch.size(0)):
-                        local_batch=im.fromarray(np.uint8(np.moveaxis(local_batch[j].cpu().detach().numpy(),0,-1))).convert('RGB')
-                        local_batch.save(os.path.join(generate_data_x,str(10*math.log10(255*255/mse)) + '.png'))
-                        local_labels=im.fromarray(np.uint8(np.moveaxis(local_labels[j].cpu().detach().numpy(),0,-1))).convert('RGB')
-                        local_labels.save(os.path.join(generate_data_y,str(10*math.log10(255*255/mse)) + '.png'))
-                        output_=im.fromarray(np.uint8(np.moveaxis(output[j].cpu().detach().numpy(),0,-1))).convert('RGB')
-                        output_.save(os.path.join(results_,str(10*math.log10(255*255/mse)) +'.png'))
+                          
+#                         local_batch=im.fromarray(np.uint8(np.moveaxis(local_batch[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+#                         local_batch.save(os.path.join(generate_data_x,str(10*math.log10(255*255/mse)) + '.png'))
+#                         local_labels=im.fromarray(np.uint8(np.moveaxis(local_labels[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+#                         local_labels.save(os.path.join(generate_data_y,str(10*math.log10(255*255/mse)) + '.png'))
+#                         output_=im.fromarray(np.uint8(np.moveaxis(output[j].cpu().detach().numpy(),0,-1))).convert('RGB')
+#                         output_.save(os.path.join(results_,str(10*math.log10(255*255/mse)) +'.png'))
                         
                         
                 else:
