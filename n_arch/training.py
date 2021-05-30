@@ -49,7 +49,7 @@ torch.backends.cudnn.benchmark = True
 from prettytable import PrettyTable
 import torch.nn.init as init
 # from vgg import vgg19
-from models import arch, DiscriminativeNet, VGGFeatureExtractor
+from model1 import arch, DiscriminativeNet, VGGFeatureExtractor
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
 import kornia

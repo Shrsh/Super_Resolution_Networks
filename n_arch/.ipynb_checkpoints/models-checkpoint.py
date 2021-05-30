@@ -160,7 +160,7 @@ class VGGFeatureExtractor(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2,negative_slope=0.2,kernel_size=3):
+    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2,negative_slope=0.6,kernel_size=3):
         super(Block, self).__init__()
         self.conv1 = ResNetBlock(kernel_size=kernel_size)
         self.conv2 = ResNetBlock(kernel_size=kernel_size)
@@ -178,7 +178,7 @@ class Block(nn.Module):
 class ResNetBlock(nn.Module):
     r"""Resnet block structure"""
 
-    def __init__(self, in_channels: int = 64,out_channels: int = 64,kernel_size=3,scale_ratio: float = 0.2,negative_slope=0.2):
+    def __init__(self, in_channels: int = 64,out_channels: int = 64,kernel_size=3,scale_ratio: float = 0.2,negative_slope=0.6):
         super(ResNetBlock, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1, padding=int((kernel_size-1)/2)),
@@ -199,7 +199,7 @@ class ResNetBlock(nn.Module):
 
 class arch(nn.Module):
 
-    def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2,negative_slope=0.2):
+    def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2,negative_slope=0.6):
         super(arch, self).__init__()
         self.conv1 = torch.nn.Conv2d(3, 32, 9, 1, 4)
         self.conv2 = torch.nn.Conv2d(32, 64, 7, 1,3)
@@ -207,25 +207,33 @@ class arch(nn.Module):
         self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
         self.block1 = Block(kernel_size=5)
         self.block2 = Block(kernel_size=5)
-        self.block3 = Block(kernel_size=3)
+        self.block3 = Block(kernel_size=5)
         self.block4 = Block(kernel_size=3)
         self.block5 = Block(kernel_size=3)
+        self.block6 = Block(kernel_size=3)
+        self.block7 = Block(kernel_size=3)
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
+        self.conv5=torch.nn.Conv2d(64*5, 64, 3, 1, 1)
         
     def forward(self, LR):
 #         LR_Feat = self.bn(LR)
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
-        LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
+        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.6)
+        LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.6)
         out1 = self.block1(LR_feat)
         out2 = self.block2(out1) + LR_feat
         out3 = self.block3(out2)
         out4 = self.block4(out3) + out2
         out5 = self.block5(out4)
+        out6 = self.block5(out5) + out4
+        out7 = self.block5(out6)
         
-        out6 = out5 + LR_feat
+#         out6=torch.cat((out1,out2,out3,out4,out5), dim=1)
+#         out6=self.conv5(out6)
         
-        out7 = self.conv3(self.up(out6))
+        out7 = out7 + LR_feat
+        
+        out7 = self.conv3(self.up(out7))
         out8 = self.conv4(out7)
         return torch.add(out8,self.up_image(LR)),out8, self.up_image(LR)  
         
