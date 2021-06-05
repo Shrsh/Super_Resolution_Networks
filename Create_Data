@@ -5,13 +5,12 @@ module load cudnn/7.3-cuda-10.0
 
 cd /scratch/
 
-if [ ! -d "harsh_cnn"]; then
+if [ -d "harsh_cnn"]; then
+    echo "Directory already Exist"
     rm -rf harsh_cnn
 fi
-
-mkdir -p harsh_cnn 
-echo "Directory Created"
-
+    
+mkdir harsh_cnn
 cd harsh_cnn/
 echo "Entering harsh_cnn directory..." 
 

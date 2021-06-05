@@ -31,9 +31,9 @@ from PIL import Image
 import pickle
 from PIL import Image as im
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.metrics import Metric
-from pytorch_lightning import loggers as pl_loggers
+
+from torchcontrib.optim import SWA
+
 # Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
@@ -53,6 +53,8 @@ from model1 import arch, DiscriminativeNet, VGGFeatureExtractor
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
 import kornia
+from torchcontrib.optim import SWA
+
 
 
 ####### Initialisation 
@@ -356,7 +358,7 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
 
     sobel = SobelGrad()
     pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data, real_data)
-
+    
     pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
     label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
     img_grad = m_loss(pred_g,label_g)
@@ -370,19 +372,25 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
-    discriminator = DiscriminativeNet()
     model=arch()
     model = nn.DataParallel(model, device_ids = device_ids)
-    discriminator = nn.DataParallel(discriminator, device_ids= device_ids)
     model = model.to(device)
     model.apply(weight_init)
+    discriminator = DiscriminativeNet()
+    discriminator = nn.DataParallel(discriminator, device_ids= device_ids) 
     discriminator=discriminator.to(device)
-#     vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
+    
+    sobel = SobelGrad()
+#     sobel = nn.DataParallel(sobel, device_ids = device_ids)
+#     sobel= sobel.to(device)
+    
+#   vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
-    g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+    g_opt = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+    g_optimizer = SWA(g_opt, swa_start=10, swa_freq=5, swa_lr=0.0001)
     scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
@@ -476,8 +484,10 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             if torch.cuda.is_available():
                 input_    = input_.to(device)
                 real_data = real_data.to(device)
-            fake_data,_,__ = model(input_)
-            fake_data.to(device)
+            pred_gradx,pred_grady,label_gradx,label_grady = sobel(input_, input_)
+            pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+            fake_data = model(input_,pred_g).to(device)
+            
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.mean().item())
@@ -489,6 +499,9 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             training_loss_perp.append(l_percp.mean().item())
             train_rec_rmse.append((Mse_loss(fake_data, real_data)).mean().item())
             count += 1 
+            
+        if epoch % 20 == 0:
+            g_optimizer.swap_swa_sgd()
 
         #Plotting Gradient Flow for both the models
         if(debug == True): 
@@ -498,33 +511,33 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output,_,__ = model(local_batch)
-                output = output.to(device)
+                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
+                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+                output= model(local_batch,pred_g).to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output,residual,up = model(local_batch)
-                output = output.to(device)
+                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
+                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+                output= model(local_batch,pred_g).to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                output,_,__ = model(local_batch)
-                output = output.to(device)
+                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
+                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+                output= model(local_batch,pred_g).to(device)
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
+                
                 
         if debug == True:
             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
             output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-            res = im.fromarray(np.uint8(np.moveaxis(residual[2].cpu().detach().numpy(),0,-1))).convert('RGB')
-            up_ = im.fromarray(np.uint8(np.moveaxis(up[2].cpu().detach().numpy(),0,-1))).convert('RGB')
-           
-
-
+         
 
 
         scheduler.step()
@@ -573,8 +586,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 'g_state_dict': g_optimizer.state_dict(),
                 'd_state_dict': d_optimizer.state_dict(),
                 }, result_file)
-            res.save(os.path.join(results,str(epoch) + 'residual' +str(best) +'.png'))
-            up_.save(os.path.join(results,str(epoch) + 'upsampled' +str(best) +'.png'))
+#             res.save(os.path.join(results,str(epoch) + 'residual' +str(best) +'.png'))
+#             up_.save(os.path.join(results,str(epoch) + 'upsampled' +str(best) +'.png'))
 #             label.save(os.path.join(results,str(epoch) + 'test_target' +str(best) +'.png'))
 #             output.save(os.path.join(results,str(epoch) + 'test_output' + str(best)+'.png'))
        
