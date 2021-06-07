@@ -238,7 +238,7 @@ class arch(nn.Module):
 
     def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2,negative_slope=0.2):
         super(arch, self).__init__()
-        self.conv1 = torch.nn.Conv2d(6, 16, 9, 1, 4)
+        self.conv1 = torch.nn.Conv2d(3, 16, 9, 1, 4)
         self.conv2 = torch.nn.Conv2d(16, 64, 7, 1,3)
         self.up_image = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
@@ -264,7 +264,7 @@ class arch(nn.Module):
 #         self.combine = torch.nn.Conv2d(6,3,1,1,0)
 #         self.conv5=torch.nn.Conv2d(64*5, 64, 3, 1, 1)
         
-    def forward(self, LR,edge):
+    def forward(self, LR):
 #         LR_Feat = self.bn(LR)
 
 #         LR_edge = F.leaky_relu(self.conv1_edge(edge),negative_slope=0.2)
@@ -274,8 +274,7 @@ class arch(nn.Module):
 #         out3_edge = F.leaky_relu(self.conv3_edge(self.up_edge(out2_edge)),negative_slope=0.2)
 #         out4_edge = self.conv4_edge(out3_edge)
         
-        input_features = torch.cat((LR, edge), 1)
-        LR_feat = F.leaky_relu(self.conv1(input_features),negative_slope=0.2)
+        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
         LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
         out1 = self.block1(LR_feat)
         out2 = self.block2(out1)
@@ -289,7 +288,6 @@ class arch(nn.Module):
 #         out6=torch.cat((out1,out2,out3,out4,out5), dim=1)
 #         out6=self.conv5(out6)
         
-        out5 = out8 + LR_feat
-        out6 = F.leaky_relu(self.conv3(self.up(out5)),negative_slope=0.2)  
+        out6 = F.leaky_relu(self.conv3(self.up(out8)),negative_slope=0.2)  
         out7 = self.conv4(out6)  
         return torch.add(out7,self.up_image(LR))

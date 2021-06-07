@@ -380,17 +380,13 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     discriminator = nn.DataParallel(discriminator, device_ids= device_ids) 
     discriminator=discriminator.to(device)
     
-    sobel = SobelGrad()
-#     sobel = nn.DataParallel(sobel, device_ids = device_ids)
-#     sobel= sobel.to(device)
-    
 #   vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
        
     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
-    g_opt = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
-    g_optimizer = SWA(g_opt, swa_start=10, swa_freq=5, swa_lr=0.0001)
+    g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+#     g_optimizer = SWA(g_opt, swa_start=10, swa_freq=5, swa_lr=0.0001)
     scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
@@ -484,9 +480,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             if torch.cuda.is_available():
                 input_    = input_.to(device)
                 real_data = real_data.to(device)
-            pred_gradx,pred_grady,label_gradx,label_grady = sobel(input_, input_)
-            pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
-            fake_data = model(input_,pred_g).to(device)
+            fake_data = model(input_).to(device)
             
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
@@ -500,8 +494,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             train_rec_rmse.append((Mse_loss(fake_data, real_data)).mean().item())
             count += 1 
             
-        if epoch % 20 == 0:
-            g_optimizer.swap_swa_sgd()
+#         if epoch % 20 == 0:
+#             g_optimizer.swap_swa_sgd()
 
         #Plotting Gradient Flow for both the models
         if(debug == True): 
@@ -511,25 +505,19 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
-                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
-                output= model(local_batch,pred_g).to(device)
+                output= model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
-                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
-                output= model(local_batch,pred_g).to(device)
+                output= model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                pred_gradx,pred_grady,label_gradx,label_grady = sobel(local_batch, local_batch)
-                pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
-                output= model(local_batch,pred_g).to(device)
+                output= model(local_batch).to(device)
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
                 
