@@ -31,14 +31,14 @@ import torch.utils.data as data
 from PIL import Image 
 import pickle
 from PIL import Image as im
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.metrics import Metric
-from pytorch_lightning import loggers as pl_loggers
+# import pytorch_lightning as pl
+# from pytorch_lightning.callbacks import ModelCheckpoint
+# from pytorch_lightning.metrics import Metric
+# from pytorch_lightning import loggers as pl_loggers
 # Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
-from IPython.display import clear_output
+# from IPython.display import clear_output
 import argparse 
 import pickle as pkl
 

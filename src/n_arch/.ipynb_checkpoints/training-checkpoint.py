@@ -30,14 +30,14 @@ import torch.utils.data as data
 from PIL import Image 
 import pickle
 from PIL import Image as im
-import pytorch_lightning as pl
+# import pytorch_lightning as pl
 
-from torchcontrib.optim import SWA
+# from torchcontrib.optim import SWA
 
 # Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
-from IPython.display import clear_output
+# from IPython.display import clear_output
 import argparse 
 import pickle as pkl
 
@@ -52,8 +52,8 @@ import torch.nn.init as init
 from model1 import arch, DiscriminativeNet, VGGFeatureExtractor
 from initializer import kaiming_normal_
 from utilities import plot_grad_flow, count_parameters, SobelGrad
-import kornia
-from torchcontrib.optim import SWA
+# import kornia
+# from torchcontrib.optim import SWA
 
 
 
@@ -197,13 +197,13 @@ def process_and_train_load_data():
     train_x = []
     data_train=[]
 #     print("Before Train_y")
-    train_yy= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/y')
+    train_yy= load_images_from_folder('/home/saransh.dave/harsh_project/data/SR_data/train/y')
 #     print("After Train_y")
     for i in train_yy:
         train_y.append(i)
 #         print("Yes")
 #     print("Before Train_x")
-    train_xx= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data/train/x')
+    train_xx= load_images_from_folder('/home/saransh.dave/harsh_project/data/SR_data/train/x')
 #     print("After Train_x")
     for i in train_xx:
         train_x.append(i)
@@ -245,13 +245,13 @@ def process_and_train_load_data():
     for input, target in zip(train_input, train_target):
         data_train.append([input, target])
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/test/x')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/test/x')
     test_input=np.asarray(test)
     test_input=np.moveaxis(test_input,1,-1)
     test_input=np.moveaxis(test_input,1,-1)
     test_input = test_input.astype(np.float32)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/test/y')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/test/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -262,7 +262,7 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_flickr.append([input, target])
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/x')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/Urban/x')
     test_input=np.asarray(test)
 #     print("Urban:",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
@@ -272,7 +272,7 @@ def process_and_train_load_data():
     test_input = test_input.astype(np.float32)
 #     print("Urban:",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Urban/y')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/Urban/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -282,7 +282,7 @@ def process_and_train_load_data():
     for input, target in zip(test_input, test_target):
         data_test_div.append([input, target])
         
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/x')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/Div/x')
     test_input=np.asarray(test)
 #     print("Div : ",test_input.shape)
     test_input=np.moveaxis(test_input,1,-1)
@@ -292,7 +292,7 @@ def process_and_train_load_data():
     test_input = test_input.astype(np.float32)
 #     print("Div : ",test_input.shape)
 
-    test= load_images_from_folder('/home/harsh.shukla/SRCNN/SR_data_512/Div/y')
+    test= load_images_from_folder('/home/saransh.dave/harsh_project/data/Div/y')
     test_target=np.asarray(test)
     test_target=np.moveaxis(test_target,1,-1)
     test_target=np.moveaxis(test_target,1,-1)
@@ -364,10 +364,10 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
     img_grad = m_loss(pred_g,label_g)
 
     
-    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
+    total_loss = loss + lambda_*error + 0*loss_perceptual_low + loss_perceptual_high + img_grad
     total_loss.mean().backward()
     optimizer.step()
-    return loss,error,total_loss,img_grad
+    return loss + img_grad,error,total_loss,loss_perceptual_high
 
 
 
@@ -412,7 +412,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     print("Number of Parameters in Discriminator")
     count_parameters(discriminator)
     
-    results = "/home/harsh.shukla/SRCNN/GAN_results"
+    results = "/home/saransh.dave/harsh_project/results/GAN_results"
     
     if not os.path.exists(results):
         os.makedirs(results)
