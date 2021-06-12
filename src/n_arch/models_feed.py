@@ -41,12 +41,12 @@ warnings.filterwarnings("ignore")
 from IPython.display import clear_output
 import argparse 
 import pickle as pkl
+# from models import SRSN_RRDB
 
 use_cuda = torch.cuda.is_available()
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 device_ids = [i for i in range(torch.cuda.device_count())]
 device = 'cuda' if use_cuda else 'cpu'
-torch.backends.cudnn.benchmark = True
 
 
 class DiscriminativeNet(torch.nn.Module):
@@ -157,6 +157,9 @@ class VGGFeatureExtractor(nn.Module):
     def forward(self, x):
         return self.features_low(x), self.features_high(x)
     
+ 
+    
+    
 class ResidualDenseBlock(nn.Module):
     r"""The residual block structure of traditional SRGAN and Dense model is defined"""
 
@@ -190,22 +193,7 @@ class ResidualDenseBlock(nn.Module):
         return (conv5+conv4).mul(self.scale_ratio)+ input
 
 
-class Block(nn.Module):
 
-    def __init__(self, channels: int = 64, growth_channels: int = 48, scale_ratio: float = 0.2,negative_slope=0.6,kernel_size=3):
-        super(Block, self).__init__()
-        self.conv1 = ResNetBlock(kernel_size=kernel_size)
-        self.conv2 = ResNetBlock(kernel_size=kernel_size)
-        self.conv3 = ResNetBlock(kernel_size=kernel_size)
-        self.scale_ratio = scale_ratio
-
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        conv1 = self.conv1(input)
-        conv2 = self.conv2(conv1)
-        conv3 = self.conv3(conv2)
-
-        return conv3.mul(self.scale_ratio) + input
     
 class ResNetBlock(nn.Module):
     r"""Resnet block structure"""
@@ -232,95 +220,69 @@ class ResNetBlock(nn.Module):
         conv2 = self.conv2(conv1)+input
         return conv2
 
-#         return self.conv3(conv2.mul(self.scale_ratio) + input)
+class SRFSN_RRDB(nn.Module):
+    def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2):
+        super(SRFSN_RRDB, self).__init__()
+        self.RDB1 = ResidualDenseBlock(kernel_size=3)
+        self.RDB2 = ResidualDenseBlock(kernel_size=3)
+        self.RDB3 = ResidualDenseBlock(kernel_size=3)
+        self.RDB4 = ResidualDenseBlock(kernel_size=3)
+        self.RDB5 = ResidualDenseBlock(kernel_size=3)
+        self.RDB6 = ResidualDenseBlock(kernel_size=3)
+        self.RDB7 = ResidualDenseBlock(kernel_size=3)
+        self.RDB8 = ResidualDenseBlock(kernel_size=3)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(64 , 32, 3, 1,1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
 
-class arch(nn.Module):
+    def forward(self, LR):
+        
+        ##Creating Skip connection between dense blocks 
+        out = self.RDB1(LR) 
+        out1= self.RDB2(out)
+        out2 = self.RDB3(out1)
+        out3 = self.RDB4(out2)
+        out4 = self.RDB5(out3)
+        out5 = self.RDB6(out4)
+        out6 = self.RDB7(out5)
+        out7 = self.RDB8(out6)
+        return out7,self.conv1(out7)  
 
-    def __init__(self, input_dim=3, dim=128, scale_factor=4,scale_ratio=0.2,negative_slope=0.2):
-        super(arch, self).__init__()
+    
+class SRFBN(nn.Module):
+    def __init__(self,num_steps):
+        super(SRFBN, self).__init__()
+
         self.conv1 = torch.nn.Conv2d(3, 16, 9, 1, 4)
-        self.conv2 = torch.nn.Conv2d(16, 64, 7, 1,3)
-        self.up_image = torch.nn.Upsample(scale_factor=4, mode='bicubic')
-        self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
-        self.block1 = ResidualDenseBlock(kernel_size=3)
-#         self.block1_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block2 = ResidualDenseBlock(kernel_size=3)
-#         self.block2_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block3 = ResidualDenseBlock(kernel_size=3)
-#         self.block3_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block4 = ResidualDenseBlock(kernel_size=3)
-#         self.block4_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block5 = ResidualDenseBlock(kernel_size=3)
-#         self.block5_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block6 = ResidualDenseBlock(kernel_size=3)
-#         self.block6_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block7 = ResidualDenseBlock(kernel_size=3)
-#         self.block7_1 = ResidualDenseBlock(kernel_size=7)
-        
-        self.block8 = ResidualDenseBlock(kernel_size=3)
-#         self.block8_1 = ResidualDenseBlock(kernel_size=7)
-        
+        self.conv2 = torch.nn.Conv2d(16,64, 7, 1,3)
+        self.num_steps = num_steps
+
+        self.block = SRFSN_RRDB()
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
-        
-#         self.conv1_edge = torch.nn.Conv2d(3, 16, 9, 1, 4)
-#         self.conv2_edge = torch.nn.Conv2d(16, 64, 7, 1,3)
-#         self.up_edge = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
-#         self.block1_edge = ResidualDenseBlock(kernel_size=3)
-#         self.block2_edge = ResidualDenseBlock(kernel_size=3)
-#         self.conv3_edge=torch.nn.Conv2d(64, 16, 3, 1, 1)
-#         self.conv4_edge=torch.nn.Conv2d(16, 3, 1, 1, 0)
-        
-#         self.combine = torch.nn.Conv2d(6,3,1,1,0)
-#         self.conv5=torch.nn.Conv2d(64*5, 64, 3, 1, 1)
-        
-    def forward(self, LR):
-#         LR_Feat = self.bn(LR)
+        self.up = torch.nn.Upsample(scale_factor=4, mode='bicubic')
+        self.trans = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
 
-#         LR_edge = F.leaky_relu(self.conv1_edge(edge),negative_slope=0.2)
-#         LR_edge1 = F.leaky_relu(self.conv2_edge(LR_edge),negative_slope=0.2)
-#         out1_edge = self.block1_edge(LR_edge1)
-#         out2_edge = self.block2_edge(out1_edge)
-#         out3_edge = F.leaky_relu(self.conv3_edge(self.up_edge(out2_edge)),negative_slope=0.2)
-#         out4_edge = self.conv4_edge(out3_edge)
-        
-        LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
-        LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
-        
-        out1 = self.block1(LR_feat)
-#         out1_1 = self.block1_1(LR_feat)
-        
-        out2 = self.block2(out1)
-#         out2_1 = self.block2_1(out1_1)
-        
-        out3 = self.block3(out2)
-#         out3_1 = self.block3_1(out2)
-        
-        out4 = self.block4(out3)
-#         out4_1 = self.block4_1(out3_1)
-        
-        out5 = self.block5(out4)
-#         out5_1 = self.block5_1(out4_1)
-        
-        out6 = self.block6(out5)
-#         out6_1 = self.block6_1(out5_1)
-    
-        out7 = self.block7(out6)
-#         out7_1 = self.block7_1(out6_1)
-        
-        out8 = self.block8(out7)
-#         out8_1 = self.block8_1(out7_1)
-        
-#         out8=torch.cat((out8,out8_1), dim=1)
-#         out6=torch.cat((out1,out2,out3,out4,out5), dim=1)
-#         out6=self.conv5(out6)
-        
-        out6 = F.leaky_relu(self.conv3(self.up(out8)),negative_slope=0.2)  
-        out7 = self.conv4(out6)
-        return torch.add(out7,self.up_image(LR))
+
+
+    def forward(self, x,y):
+        upsample = y
+        x = F.leaky_relu(self.conv1(x), negative_slope=0.2)
+        x = F.leaky_relu(self.conv2(x), negative_slope=0.2) 
+#         hidden=torch.zeros(x.size()).cuda()
+        hidden=x[:,32:64,:,:]
+        x=x[:,0:32,:,:]
+        outs = []
+        for _ in range(self.num_steps):
+            h = torch.cat((x, hidden), dim=1)
+            h,hidden = self.block(h)
+            out_ = self.trans(h)
+            h = F.leaky_relu(self.conv3(out_),negative_slope=0.2)
+            SR= self.conv4(h)
+  
+            outs.append(torch.add(self.up(y),SR))
+
+        return outs 
+
+

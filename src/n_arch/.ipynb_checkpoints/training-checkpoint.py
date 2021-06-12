@@ -340,7 +340,7 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
     optimizer.zero_grad()
     loss_perceptual_low=0
     loss_perceptual_high=0
-    lambda_ = 0
+    lambda_ = 1
     
     ##Reconstruction loss
     loss=m_loss(fake_data, real_data)
@@ -371,7 +371,7 @@ def train_generator(model, optimizer, fake_data,real_data,discriminator,b_loss,m
 
 
 
-def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
+def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=1):
     model=arch()
     model = nn.DataParallel(model, device_ids = device_ids)
     model = model.to(device)
@@ -384,10 +384,11 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
        
-    d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
-    g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.000001)
+#     d_optimizer = optim.SGD(discriminator.parameters(), lr=0.00001, momentum=0.9)
+    g_optimizer = optim.Adam(model.parameters(), lr=0.0005, betas=(0.9, 0.999), eps=1e-8)
 #     g_optimizer = SWA(g_opt, swa_start=10, swa_freq=5, swa_lr=0.0001)
-    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=10, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)

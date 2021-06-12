@@ -243,13 +243,29 @@ class arch(nn.Module):
         self.up_image = torch.nn.Upsample(scale_factor=4, mode='bicubic')
         self.up = torch.nn.ConvTranspose2d(64,64,stride=4,kernel_size=4)
         self.block1 = ResidualDenseBlock(kernel_size=3)
+#         self.block1_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block2 = ResidualDenseBlock(kernel_size=3)
+#         self.block2_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block3 = ResidualDenseBlock(kernel_size=3)
+#         self.block3_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block4 = ResidualDenseBlock(kernel_size=3)
+#         self.block4_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block5 = ResidualDenseBlock(kernel_size=3)
+#         self.block5_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block6 = ResidualDenseBlock(kernel_size=3)
+#         self.block6_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block7 = ResidualDenseBlock(kernel_size=3)
+#         self.block7_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.block8 = ResidualDenseBlock(kernel_size=3)
+#         self.block8_1 = ResidualDenseBlock(kernel_size=7)
+        
         self.conv3=torch.nn.Conv2d(64, 16, 3, 1, 1)
         self.conv4=torch.nn.Conv2d(16, 3, 1, 1, 0)
         
@@ -276,18 +292,35 @@ class arch(nn.Module):
         
         LR_feat = F.leaky_relu(self.conv1(LR),negative_slope=0.2)
         LR_feat = F.leaky_relu(self.conv2(LR_feat),negative_slope=0.2)
-        out1 = self.block1(LR_feat)
-        out2 = self.block2(out1)
-        out3 = self.block3(out2)
-        out4 = self.block4(out3)
-        out5 = self.block5(out4)
-        out6 = self.block6(out5)
-        out7 = self.block7(out6)
-        out8 = self.block8(out7)
         
+        out1 = self.block1(LR_feat)
+#         out1_1 = self.block1_1(LR_feat)
+        
+        out2 = self.block2(out1)
+#         out2_1 = self.block2_1(out1_1)
+        
+        out3 = self.block3(out2)
+#         out3_1 = self.block3_1(out2)
+        
+        out4 = self.block4(out3)
+#         out4_1 = self.block4_1(out3_1)
+        
+        out5 = self.block5(out4)
+#         out5_1 = self.block5_1(out4_1)
+        
+        out6 = self.block6(out5)
+#         out6_1 = self.block6_1(out5_1)
+    
+        out7 = self.block7(out6)
+#         out7_1 = self.block7_1(out6_1)
+        
+        out8 = self.block8(out7)
+#         out8_1 = self.block8_1(out7_1)
+        
+#         out8=torch.cat((out8,out8_1), dim=1)
 #         out6=torch.cat((out1,out2,out3,out4,out5), dim=1)
 #         out6=self.conv5(out6)
         
         out6 = F.leaky_relu(self.conv3(self.up(out8)),negative_slope=0.2)  
-        out7 = self.conv4(out6)  
+        out7 = self.conv4(out6)
         return torch.add(out7,self.up_image(LR))

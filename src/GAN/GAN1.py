@@ -313,7 +313,6 @@ def process_and_train_load_data():
     
     return trainloader, testloader_flickr,testloader_div,testloader_urban
     
-
 def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     
     optimizer.zero_grad()
@@ -332,6 +331,11 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     optimizer.step()
 
     return error_real + error_fake, prediction_real, prediction_fake
+
+
+
+
+
 
 
 

@@ -330,11 +330,13 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 
 
 
+
+
 def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminator,b_loss,m_loss,vgg_features_high):
     optimizer.zero_grad()
     loss_perceptual_low=0
     loss_perceptual_high=0
-    lambda_ = 0
+    lambda_ = 1
     loss1=0
     ##Reconstruction loss for feedback
 #     up=model_up(x)
@@ -375,13 +377,13 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
     discriminator = DiscriminativeNet()
     
-    model_up=SRSN_RRDB1()
-    model_up = nn.DataParallel(model_up, device_ids = device_ids)
-    model_up = model_up.to(device)
-    checkpoint_file='/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt'
-    checkpoint = torch.load(checkpoint_file)
-    model_up.load_state_dict(checkpoint['generator_state_dict'])
-    model_up.eval()
+#     model_up=SRSN_RRDB1()
+#     model_up = nn.DataParallel(model_up, device_ids = device_ids)
+#     model_up = model_up.to(device)
+#     checkpoint_file='/home/harsh.shukla/SRCNN/Weights/L1_28.52.pt'
+#     checkpoint = torch.load(checkpoint_file)
+#     model_up.load_state_dict(checkpoint['generator_state_dict'])
+#     model_up.eval()
     
     model=SRFBN()
     model = nn.DataParallel(model, device_ids = device_ids)
@@ -392,11 +394,11 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
 #     vgg_features_high=nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
-       
-    d_optimizer = optim.SGD(discriminator.parameters(), lr=0.000001, momentum=0.9)
-    g_optimizer = optim.Adam(model.parameters(), lr=0.0002, betas=(0.9, 0.999), eps=1e-8)
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.000001)
+    g_optimizer = optim.Adam(model.parameters(), lr=0.0005, betas=(0.9, 0.999), eps=1e-8)
+    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=10, gamma=0.8,verbose=True)
+    
 
-    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=60, gamma=0.8,verbose=True)
     
     Mse_loss = nn.DataParallel(nn.MSELoss(),device_ids = device_ids).to(device)
     Bce_loss = nn.DataParallel(nn.BCEWithLogitsLoss(),device_ids = device_ids).to(device)
@@ -489,8 +491,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
             if torch.cuda.is_available():
                 input_    = input_.to(device)
                 real_data = real_data
-            up=model_up(input_)
-            fake_data = model(input_,up)
+#             up=model_up(input_)
+            fake_data = model(input_,input_)[-1]
             if count == K:
                 d_error, d_pred_real, d_pred_fake = train_discriminator(d_optimizer, real_data, fake_data,discriminator,Bce_loss)
                 training_loss_d.append(d_error.mean().item())
@@ -512,30 +514,30 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with torch.set_grad_enabled(False):
             for local_batch, local_labels in testloader_urban:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up).to(device)
+#                 up=model_up(local_batch)
+                output = model(local_batch,local_batch)[-1].to(device)
                 local_labels.require_grad = False
                 test_loss_urban.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_div:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up).to(device)
+#                 up=model_up(local_batch)
+                output = model(local_batch,local_batch)[-1].to(device)
                 local_labels.require_grad = False
                 test_loss_div.append(Mse_loss(output, local_labels).mean().item())
                 
             for local_batch, local_labels in testloader_flickr:
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-                up=model_up(local_batch)
-                output = model(local_batch,up).to(device)
+#                 up=model_up(local_batch)
+                output = model(local_batch,local_batch)[-1].to(device)
                 
         
                 local_labels.require_grad = False
                 test_loss_flickr.append(Mse_loss(output, local_labels).mean().item())
                 
-        if debug == True:
-            label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
-            output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+#         if debug == True:
+#             label=im.fromarray(np.uint8(np.moveaxis(local_labels[0].cpu().detach().numpy(),0,-1))).convert('RGB')
+#             output=im.fromarray(np.uint8(np.moveaxis(output[0].cpu().detach().numpy(),0,-1))).convert('RGB')
 
 
         scheduler.step()
