@@ -255,7 +255,7 @@ class SRFBN(nn.Module):
         super(SRFBN, self).__init__()
 
         self.conv1 = torch.nn.Conv2d(3, 16, 9, 1, 4)
-        self.conv2 = torch.nn.Conv2d(16,64, 7, 1,3)
+        self.conv2 = torch.nn.Conv2d(16,32, 7, 1,3)
         self.num_steps = num_steps
 
         self.block = SRFSN_RRDB()
@@ -270,9 +270,7 @@ class SRFBN(nn.Module):
         upsample = y
         x = F.leaky_relu(self.conv1(x), negative_slope=0.2)
         x = F.leaky_relu(self.conv2(x), negative_slope=0.2) 
-#         hidden=torch.zeros(x.size()).cuda()
-        hidden=x[:,32:64,:,:]
-        x=x[:,0:32,:,:]
+        hidden=torch.zeros(x.size()).cuda()
         outs = []
         for _ in range(self.num_steps):
             h = torch.cat((x, hidden), dim=1)

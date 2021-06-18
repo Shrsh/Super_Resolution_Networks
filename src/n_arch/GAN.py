@@ -232,7 +232,9 @@ def process_and_train_load_data():
 #         small_array = cv2.resize(x, (128,128))
 #         train_y.append(x)
 #         train_x.append(small_array)
-
+    
+    train_y=train_y[0:3528]
+    train_x=train_x[0:3528]
     train_target=np.asarray(train_y)
     train_target=np.moveaxis(train_target,1,-1)
     train_target=np.moveaxis(train_target,1,-1)
@@ -301,7 +303,7 @@ def process_and_train_load_data():
         data_test_urban.append([input, target])
         
     
-    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=4, shuffle=False)
+    trainloader=torch.utils.data.DataLoader(dataset=data_train, batch_size=8, shuffle=False)
     testloader_flickr=torch.utils.data.DataLoader(dataset=data_test_flickr, batch_size=8, shuffle=False)
     testloader_urban=torch.utils.data.DataLoader(dataset=data_test_div, batch_size=8, shuffle=False)
     testloader_div=torch.utils.data.DataLoader(dataset=data_test_urban, batch_size=8, shuffle=False)
@@ -311,9 +313,14 @@ def process_and_train_load_data():
 
 def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
     
+    sobel = SobelGrad()
+    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data.to(device), real_data.to(device))
+    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+    label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
+    
     optimizer.zero_grad()
-    prediction_real = discriminator(real_data.detach()).to(device)
-    prediction_fake = discriminator(fake_data.detach()).to(device)
+    prediction_real = discriminator(label_g.detach()).to(device)
+    prediction_fake = discriminator(pred_g.detach()).to(device)
     
     # 1. Train on Real Data
     truth_real=Variable(torch.ones(real_data.size(0), 1))-0.1
@@ -328,7 +335,18 @@ def train_discriminator(optimizer, real_data, fake_data,discriminator,b_loss):
 
     return error_real + error_fake, prediction_real, prediction_fake
 
+def gram_matrix(input):
+    a, b, c, d = input.size()  # a=batch size(=1)
+    # b=number of feature maps
+    # (c,d)=dimensions of a f. map (N=c*d)
 
+    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
+
+    G = torch.mm(features, features.t())  # compute the gram product
+
+    # we 'normalize' the values of the gram matrix
+    # by dividing by the number of element in each feature maps.
+    return G.div(a * b * c * d)
 
 
 
@@ -344,34 +362,41 @@ def train_generator(model_up,x,model, optimizer, fake_data,real_data,discriminat
 #     for i in range (len(output)):
 #         loss1+=m_loss(output[i].to(device), real_data)
 #     loss=loss1
+
+
+    #Image Gradient Loss
+    sobel = SobelGrad()
+    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data.to(device), real_data.to(device))
+    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
+    label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
+    img_grad = m_loss(pred_g,label_g)
     
     #Reconstruction loss
     loss=m_loss(fake_data, real_data)
     
     ## Adversarial Loss 
-    prediction = discriminator(fake_data).to(device)
+    prediction = discriminator(pred_g).to(device)
     error = b_loss(prediction, Variable(torch.ones(real_data.size(0), 1)).to(device))
-#     features_gt_low, features_gt_high=vgg_features_high(real_data)
-#     features_out_low, features_out_high=vgg_features_high(fake_data)
     
     ## Perceptual High
-#     loss_perceptual_low=m_loss(features_gt_low, features_out_low)
-#     loss_perceptual_high=m_loss(features_gt_high, features_out_high)
+    features_gt_low, features_gt_high=vgg_features_high(real_data)
+    features_out_low, features_out_high=vgg_features_high(fake_data)
     
-    ##Image Gradient Loss
+    
+#     loss_perceptual_low=m_loss(features_gt_low, features_out_low).to(device)
+    loss_perceptual_high=m_loss(features_gt_high, features_out_high)
 
-    sobel = SobelGrad()
-    pred_gradx,pred_grady,label_gradx,label_grady = sobel(fake_data.to(device), real_data.to(device))
-
-    pred_g = torch.sqrt(torch.pow(pred_gradx,2) + torch.pow(pred_grady,2))
-    label_g =torch.sqrt(torch.pow(label_gradx,2) + torch.pow(label_grady,2))
-    img_grad = m_loss(pred_g,label_g)
+     # Gram Matrix Loss
+    gram_matrix_labels = gram_matrix(features_gt_low).to(device)
+    gram_matrix_outputs = gram_matrix(features_out_low).to(device)
+    gram_matrix_loss = m_loss(gram_matrix_labels, gram_matrix_outputs).to(device)
 
     
-    total_loss = loss + lambda_*error + 0*loss_perceptual_low + 0*loss_perceptual_high + img_grad
+    total_loss = loss + lambda_*error + img_grad + gram_matrix_loss+loss_perceptual_high
+#     print("Total_loss : ",total_loss )
     total_loss.mean().backward()
     optimizer.step()
-    return loss,error,total_loss,img_grad
+    return loss,error,total_loss,loss_perceptual_high, gram_matrix_loss,img_grad
 
 
 def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban, debug,num_epochs=200,K=10):
@@ -395,8 +420,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     vgg_features_high = nn.DataParallel(VGGFeatureExtractor())
     vgg_features_high.to(device)
     d_optimizer = optim.Adam(discriminator.parameters(), lr=0.000001)
-    g_optimizer = optim.Adam(model.parameters(), lr=0.0005, betas=(0.9, 0.999), eps=1e-8)
-    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=10, gamma=0.8,verbose=True)
+    g_optimizer = optim.Adam(model.parameters(), lr=0.0003, betas=(0.9, 0.99), eps=1e-8)
+    scheduler = torch.optim.lr_scheduler.StepLR(g_optimizer, step_size=50, gamma=0.8,verbose=True)
     
 
     
@@ -443,7 +468,7 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
     
    
     # load model if exists
-    if os.path.exists(result_file):
+    if os.path.exists(checkpoint_file):
         print("Loading from Previous Checkpoint...")
         checkpoint = torch.load(checkpoint_file)
         model.load_state_dict(checkpoint['generator_state_dict'])
@@ -481,6 +506,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         training_dis_loss_g=[]
         training_loss_g = []
         training_loss_perp = []
+        training_loss_sobel = []
+        training_gm_loss = []
         test_loss_flickr=[]
         test_loss_div=[]
         test_loss_urban=[]
@@ -498,11 +525,13 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
                 training_loss_d.append(d_error.mean().item())
                 count = 0
             
-            g_rec_error,g_dis_error,g_error,l_percp = train_generator(model,input_,model,g_optimizer, fake_data, real_data, discriminator, Bce_loss, criterion,vgg_features_high)
+            g_rec_error,g_dis_error,g_error,l_percp, g_m_loss,g_sobel = train_generator(model,input_,model,g_optimizer, fake_data, real_data, discriminator, Bce_loss, criterion,vgg_features_high)
             training_rec_loss_g.append(g_rec_error.mean().item())
             training_dis_loss_g.append(g_dis_error.mean().item())
             training_loss_g.append(g_error.mean().item())
             training_loss_perp.append(l_percp.mean().item())
+            training_gm_loss.append(g_m_loss.mean().item())
+            training_loss_sobel.append(g_sobel.mean().item())
             train_rec_rmse.append((Mse_loss(fake_data, real_data)).mean().item())
             count += 1 
 
@@ -556,7 +585,9 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         print("Generator Reconstruction Loss :",sum(training_rec_loss_g)/len(training_rec_loss_g))
         print("Generator Adversarial Loss :",sum(training_dis_loss_g)/len(training_dis_loss_g))
         print("Perceptual Loss :", sum(training_loss_perp)/len(training_loss_perp))
+        print("Sobel Loss :", sum(training_loss_sobel)/len(training_loss_sobel))
         print("Total Generator Loss:",sum(training_loss_g)/len(training_loss_g))
+        print("Gram Matrix Loss:",sum(training_gm_loss)/len(training_gm_loss))
         print("D(X) :",d_pred_real.mean(), "D(G(X)) :",d_pred_fake.mean())
         Disriminator_Loss.append(sum(training_loss_d)/len(training_loss_d))
         Generator_Adver_Loss.append(sum(training_dis_loss_g)/len(training_dis_loss_g))
@@ -576,8 +607,8 @@ def train_network(trainloader, testloader_flickr,testloader_div,testloader_urban
         with open(os.path.join(results,"Train.txt"), 'wb') as f:
              pickle.dump(train_psnr,f )
                 
-        if best< psnr_flickr[-1]:
-            best= psnr_flickr[-1]
+        if best< psnr_div[-1]:
+            best= psnr_div[-1]
             with open(os.path.join(results,"Best.txt"), 'wb') as f:
               pickle.dump(best,f )
             torch.save({
